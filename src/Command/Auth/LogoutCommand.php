@@ -6,11 +6,11 @@ namespace Llmor\Cli\Command\Auth;
 
 use Llmor\Cli\Auth\SessionStore;
 use Llmor\Cli\Command\AbstractCommand;
+use Llmor\Cli\Console\OutputStyle;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'auth:logout',
@@ -25,7 +25,7 @@ final class LogoutCommand extends AbstractCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io = new OutputStyle($input, $output);
 
         $this->store->clear();
         $io->success('Session cleared. The next command will re-authenticate using your stored credentials.');

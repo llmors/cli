@@ -35,6 +35,6 @@ final class Services
         $this->signer = new AccessTokenSigner();
         $this->store = new SessionStore($config->sessionFile());
         $this->sessions = new SessionManager($this->http, $this->signer, $this->store, $config);
-        $this->client = new LlmorClient($this->http, $this->sessions, $this->signer, $config->host);
+        $this->client = new LlmorClient($this->http, $this->sessions, $this->signer, $config->host, $config->vendor);
     }
 }

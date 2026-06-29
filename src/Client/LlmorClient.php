@@ -29,6 +29,7 @@ final class LlmorClient
         private readonly SessionManager $sessions,
         private readonly AccessTokenSigner $signer,
         private readonly string $host,
+        private readonly ?string $vendor = null,
     ) {
     }
 
@@ -109,6 +110,12 @@ final class LlmorClient
             ),
         ];
 
+        // The acting-vendor context: nearly every resource is vendor-scoped, so
+        // the configured vendor key travels with every authenticated request.
+        if (null !== $this->vendor && '' !== $this->vendor) {
+            $headers['X-Vendor'] = $this->vendor;
+        }
+
         $options = ['headers' => $headers];
         if (null !== $json) {
             $options['json'] = $json;
@@ -148,13 +155,18 @@ final class LlmorClient
      */
     private function mapError(int $status, array $body): ApiException
     {
+        // The API returns field errors under both 422 and 400 (the validator
+        // currently answers with 400), so treat a 400 carrying an `errors` map
+        // as a validation failure too — otherwise the detail is lost.
+        $hasFieldErrors = isset($body['errors']) && \is_array($body['errors']) && [] !== $body['errors'];
+
         return match (true) {
             401 === $status => new AuthenticationException(
                 \is_string($body['message'] ?? null) ? $body['message'] : 'Authentication failed.',
                 $status,
                 $body,
             ),
-            422 === $status => ValidationException::fromResponse($status, $body),
+            422 === $status, 400 === $status && $hasFieldErrors => ValidationException::fromResponse($status, $body),
             default => ApiException::fromResponse($status, $body),
         };
     }

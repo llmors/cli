@@ -9,6 +9,7 @@ use Llmor\Cli\Command\AbstractCommand;
 use Llmor\Cli\Config\ConfigResolver;
 use Llmor\Cli\Config\Configuration;
 use Llmor\Cli\Config\EnvFile;
+use Llmor\Cli\Console\OutputStyle;
 use Llmor\Cli\Services;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -16,7 +17,6 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\Question;
-use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'auth:login',
@@ -35,12 +35,13 @@ final class LoginCommand extends AbstractCommand
             ->addOption('global', 'g', InputOption::VALUE_NONE, 'Store credentials in ~/.llmor instead of the project directory.')
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'API host (e.g. https://llmor.com).')
             ->addOption('email', null, InputOption::VALUE_REQUIRED, 'Login email / identifier.')
-            ->addOption('password', null, InputOption::VALUE_REQUIRED, 'Login password / secret.');
+            ->addOption('password', null, InputOption::VALUE_REQUIRED, 'Login password / secret.')
+            ->addOption('vendor', null, InputOption::VALUE_REQUIRED, 'Vendor key to act as (sent as the X-Vendor header).');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io = new OutputStyle($input, $output);
 
         $directory = $input->getOption('global')
             ? $this->resolver->homeDirectory()
@@ -74,7 +75,12 @@ final class LoginCommand extends AbstractCommand
             return Command::FAILURE;
         }
 
-        $config = new Configuration($host, $email, $password, $directory);
+        $vendor = $this->resolveValue(
+            $input->getOption('vendor'),
+            fn (): string => (string) $io->ask('Vendor key (optional, press enter to skip)', $existing['LLMOR_VENDOR'] ?? null),
+        );
+
+        $config = new Configuration($host, $email, $password, '' !== $vendor ? $vendor : null, $directory);
 
         $io->section('Verifying credentials');
         $services = new Services($config);
@@ -86,18 +92,24 @@ final class LoginCommand extends AbstractCommand
             return $this->renderApiError($io, $e);
         }
 
-        EnvFile::write($config->envFile(), [
+        $values = [
             'LLMOR_HOST' => $host,
             'LLMOR_IDENTIFIER' => $email,
             'LLMOR_SECRET' => $password,
-        ]);
+        ];
+        if (null !== $config->vendor) {
+            $values['LLMOR_VENDOR'] = $config->vendor;
+        }
+        EnvFile::write($config->envFile(), $values);
 
-        $user = $response->data();
+        $body = $response->body;
+        $user = isset($body['user']) && \is_array($body['user']) ? $body['user'] : $response->data();
         $name = \trim(self::stringify($user['firstname'] ?? '').' '.self::stringify($user['lastname'] ?? ''));
 
         $io->success(\sprintf(
-            'Signed in as %s. Credentials saved to %s',
+            'Signed in as %s%s. Credentials saved to %s',
             '' !== $name ? $name.' <'.$email.'>' : $email,
+            null !== $config->vendor ? ' (vendor: '.$config->vendor.')' : '',
             $config->envFile(),
         ));
 

@@ -74,25 +74,55 @@ final class WhoamiCommandTest extends TestCase
         );
     }
 
-    private function commandTester(MockHttpClient $http): CommandTester
+    public function testVendorKeyIsSentAsXVendorHeader(): void
     {
-        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', $this->dir);
+        $calls = [];
+        $vendorLog = [];
+        $http = $this->mockApi($calls, [200], $vendorLog);
+        $tester = $this->commandTester($http, vendor: 'acme-co');
+
+        self::assertSame(0, $tester->execute([]));
+
+        $userCall = $this->lastCallTo($vendorLog, '/v1/auth/session/user');
+        self::assertNotNull($userCall);
+        self::assertSame('acme-co', $userCall['vendor'], 'The configured vendor key must be sent as X-Vendor.');
+    }
+
+    public function testNoVendorHeaderWhenNotConfigured(): void
+    {
+        $calls = [];
+        $vendorLog = [];
+        $http = $this->mockApi($calls, [200], $vendorLog);
+        $tester = $this->commandTester($http);
+
+        self::assertSame(0, $tester->execute([]));
+
+        $userCall = $this->lastCallTo($vendorLog, '/v1/auth/session/user');
+        self::assertNotNull($userCall);
+        self::assertNull($userCall['vendor'], 'No X-Vendor header is sent when no vendor is configured.');
+    }
+
+    private function commandTester(MockHttpClient $http, ?string $vendor = null): CommandTester
+    {
+        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', $vendor, $this->dir);
         $services = new Services($config, $http);
 
         return new CommandTester(new WhoamiCommand($services->client));
     }
 
     /**
-     * @param list<string> $calls        captures the request path order
-     * @param list<int>    $userStatuses status codes to return for successive /session/user calls
+     * @param list<string>                               $calls        captures the request path order
+     * @param list<int>                                  $userStatuses status codes to return for successive /session/user calls
+     * @param list<array{path: string, vendor: ?string}> $vendorLog    captures the X-Vendor header sent per request
      */
-    private function mockApi(array &$calls, array $userStatuses): MockHttpClient
+    private function mockApi(array &$calls, array $userStatuses, array &$vendorLog = []): MockHttpClient
     {
         $userIndex = 0;
 
-        $factory = function (string $method, string $url, array $options) use (&$calls, &$userIndex, $userStatuses): MockResponse {
+        $factory = function (string $method, string $url, array $options) use (&$calls, &$userIndex, &$vendorLog, $userStatuses): MockResponse {
             $path = (string) \parse_url($url, \PHP_URL_PATH);
             $calls[] = $path;
+            $vendorLog[] = ['path' => $path, 'vendor' => $this->readVendorHeader($options)];
 
             $user = ['data' => ['id' => 1, 'email' => 'admin@test.llmor', 'firstname' => 'Admin', 'lastname' => 'User']];
 
@@ -116,5 +146,41 @@ final class WhoamiCommandTest extends TestCase
         };
 
         return new MockHttpClient($factory, 'https://api.test');
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     */
+    private function readVendorHeader(array $options): ?string
+    {
+        $headers = $options['headers'] ?? [];
+        if (!\is_array($headers)) {
+            return null;
+        }
+
+        foreach ($headers as $header) {
+            if (\is_string($header) && 0 === \stripos($header, 'x-vendor:')) {
+                return \trim(\substr($header, \strlen('x-vendor:')));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array{path: string, vendor: ?string}> $log
+     *
+     * @return array{path: string, vendor: ?string}|null
+     */
+    private function lastCallTo(array $log, string $suffix): ?array
+    {
+        $match = null;
+        foreach ($log as $entry) {
+            if (\str_ends_with($entry['path'], $suffix)) {
+                $match = $entry;
+            }
+        }
+
+        return $match;
     }
 }

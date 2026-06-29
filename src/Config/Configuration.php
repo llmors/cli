@@ -16,6 +16,7 @@ final class Configuration
         public readonly string $host,
         public readonly ?string $identifier,
         public readonly ?string $secret,
+        public readonly ?string $vendor,
         public readonly string $directory,
     ) {
     }

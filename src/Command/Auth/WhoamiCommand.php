@@ -7,12 +7,12 @@ namespace Llmor\Cli\Command\Auth;
 use Llmor\Cli\Client\Exception\ApiException;
 use Llmor\Cli\Client\LlmorClient;
 use Llmor\Cli\Command\AbstractCommand;
+use Llmor\Cli\Console\OutputStyle;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Style\SymfonyStyle;
 
 #[AsCommand(
     name: 'auth:whoami',
@@ -32,7 +32,7 @@ final class WhoamiCommand extends AbstractCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io = new OutputStyle($input, $output);
 
         try {
             $response = $this->client->get('/v1/auth/session/user');
@@ -51,15 +51,15 @@ final class WhoamiCommand extends AbstractCommand
         $body = $response->body;
         $user = isset($body['user']) && \is_array($body['user']) ? $body['user'] : $response->data();
 
-        $rows = [];
+        $pairs = [];
         foreach (['id', 'email', 'firstname', 'lastname', 'locale', 'currency', 'is_su', 'is_active', 'last_signin'] as $key) {
             if (\array_key_exists($key, $user)) {
-                $rows[] = [$key, self::stringify($user[$key])];
+                $pairs[$key] = self::stringify($user[$key]);
             }
         }
 
         $io->title('Authenticated user');
-        $io->table(['Field', 'Value'], $rows);
+        $io->kv($pairs);
 
         return Command::SUCCESS;
     }

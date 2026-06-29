@@ -4,8 +4,57 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "6f018bf64a3a1a790ecdcad509059b0b",
+    "content-hash": "c8086b2e63bc71a211efd76785d226c1",
     "packages": [
+        {
+            "name": "clancats/schemascript",
+            "version": "dev-master",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/ClanCats/SchemaScript.git",
+                "reference": "d92046419ad6da5fbfe3ac296e88c0291d0bd8fa"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/ClanCats/SchemaScript/zipball/d92046419ad6da5fbfe3ac296e88c0291d0bd8fa",
+                "reference": "d92046419ad6da5fbfe3ac296e88c0291d0bd8fa",
+                "shasum": ""
+            },
+            "require": {
+                "php": ">=8.3"
+            },
+            "require-dev": {
+                "phpstan/phpstan": "2.1.55",
+                "phpunit/phpunit": "^9",
+                "squizlabs/php_codesniffer": "^3.5"
+            },
+            "default-branch": true,
+            "bin": [
+                "bin/scsc"
+            ],
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "ClanCats\\SchemaScript\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "ClanCats\\SchemaScript\\": "tests/"
+                }
+            },
+            "authors": [
+                {
+                    "name": "Mario Döring",
+                    "email": "mario@clancats.com"
+                }
+            ],
+            "support": {
+                "source": "https://github.com/ClanCats/SchemaScript/tree/master",
+                "issues": "https://github.com/ClanCats/SchemaScript/issues"
+            },
+            "time": "2026-06-29T21:41:09+00:00"
+        },
         {
             "name": "psr/container",
             "version": "2.0.2",
@@ -7261,9 +7310,11 @@
         }
     ],
     "aliases": [],
-    "minimum-stability": "stable",
-    "stability-flags": {},
-    "prefer-stable": false,
+    "minimum-stability": "dev",
+    "stability-flags": {
+        "clancats/schemascript": 20
+    },
+    "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": ">=8.3",

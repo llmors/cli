@@ -10,6 +10,11 @@ use Throwable;
 /**
  * Base exception for any non-successful API interaction. Carries the HTTP
  * status code and the decoded response body for richer error reporting.
+ *
+ * Subclasses keep this constructor signature unchanged, so {@see fromResponse()}
+ * can use `new static` to build the right type.
+ *
+ * @phpstan-consistent-constructor
  */
 class ApiException extends RuntimeException
 {
@@ -28,12 +33,13 @@ class ApiException extends RuntimeException
     /**
      * @param array<string, mixed> $body
      */
-    public static function fromResponse(int $statusCode, array $body): self
+    public static function fromResponse(int $statusCode, array $body): static
     {
         $message = \is_string($body['message'] ?? null) && '' !== $body['message']
             ? $body['message']
             : \sprintf('Request failed with HTTP status %d.', $statusCode);
 
-        return new self($message, $statusCode, $body);
+        // `new static` so ValidationException::fromResponse() yields a ValidationException.
+        return new static($message, $statusCode, $body);
     }
 }

@@ -7,12 +7,12 @@ namespace Llmor\Cli\Command\Conversation;
 use Llmor\Cli\Client\Exception\ApiException;
 use Llmor\Cli\Client\LlmorClient;
 use Llmor\Cli\Command\AbstractCommand;
+use Llmor\Cli\Console\OutputStyle;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * Example authenticated resource command. Lists conversations, exercising the
@@ -39,7 +39,7 @@ final class ListCommand extends AbstractCommand
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $io = new SymfonyStyle($input, $output);
+        $io = new OutputStyle($input, $output);
 
         try {
             $response = $this->client->get('/v1/conversations', [
@@ -77,8 +77,8 @@ final class ListCommand extends AbstractCommand
 
         $meta = $response->meta();
         if ([] !== $meta) {
-            $io->writeln(\sprintf(
-                '<info>page %s/%s · %s total</info>',
+            $io->meta(\sprintf(
+                'page %s/%s · %s total',
                 self::stringify($meta['page'] ?? '?'),
                 self::stringify(isset($meta['total_count'], $meta['page_size']) && (int) $meta['page_size'] > 0
                     ? (int) \ceil((int) $meta['total_count'] / (int) $meta['page_size'])

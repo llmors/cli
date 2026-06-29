@@ -19,7 +19,7 @@ final class ConfigResolver
     public const DIR_NAME = '.llmor';
     public const DEFAULT_HOST = 'https://llmor.com';
 
-    private const ENV_KEYS = ['LLMOR_HOST', 'LLMOR_IDENTIFIER', 'LLMOR_SECRET'];
+    private const ENV_KEYS = ['LLMOR_HOST', 'LLMOR_IDENTIFIER', 'LLMOR_SECRET', 'LLMOR_VENDOR'];
 
     /**
      * @param array<string, string> $env captured `LLMOR_*` process environment
@@ -50,9 +50,11 @@ final class ConfigResolver
     }
 
     /**
-     * Locate an existing `.llmor` directory, or null when none can be found.
+     * Locate the nearest project-local `.llmor` directory by walking up from the
+     * current working directory. Returns null when none exists (the home
+     * directory is handled separately as a fallback layer).
      */
-    public function locate(): ?string
+    public function locateProject(): ?string
     {
         $dir = $this->cwd;
         while (true) {
@@ -66,11 +68,6 @@ final class ConfigResolver
                 break;
             }
             $dir = $parent;
-        }
-
-        $home = $this->homeDirectory();
-        if (\is_dir($home)) {
-            return $home;
         }
 
         return null;
@@ -94,10 +91,19 @@ final class ConfigResolver
 
     public function load(): Configuration
     {
-        $directory = $this->locate() ?? $this->homeDirectory();
+        $projectDir = $this->locateProject();
+        $homeDir = $this->homeDirectory();
 
-        $fileValues = EnvFile::parse($directory.\DIRECTORY_SEPARATOR.'.env');
-        $values = \array_merge($fileValues, $this->env);
+        // Layer values per key: home `.llmor/.env` < project `.llmor/.env` <
+        // real LLMOR_* env vars. This lets, e.g., credentials live globally in
+        // ~/.llmor while a project overrides only the vendor. Empty values are
+        // treated as "missing" so they fall back instead of shadowing a lower layer.
+        $keep = static fn (string $v): bool => '' !== $v;
+        $values = \array_merge(
+            \array_filter(EnvFile::parse($homeDir.\DIRECTORY_SEPARATOR.'.env'), $keep),
+            null !== $projectDir ? \array_filter(EnvFile::parse($projectDir.\DIRECTORY_SEPARATOR.'.env'), $keep) : [],
+            \array_filter($this->env, $keep),
+        );
 
         $host = $values['LLMOR_HOST'] ?? self::DEFAULT_HOST;
 
@@ -105,7 +111,10 @@ final class ConfigResolver
             host: \rtrim($host, '/'),
             identifier: $values['LLMOR_IDENTIFIER'] ?? null,
             secret: $values['LLMOR_SECRET'] ?? null,
-            directory: $directory,
+            vendor: $values['LLMOR_VENDOR'] ?? null,
+            // The session lives in the most-specific directory: the project's
+            // `.llmor` when present, otherwise the user's `~/.llmor`.
+            directory: $projectDir ?? $homeDir,
         );
     }
 

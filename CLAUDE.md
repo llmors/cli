@@ -10,15 +10,17 @@ Buildable to a phar (Box) or a self-contained static binary (static-php-cli).
   registers commands. Both `Services` and `ConfigResolver` are injectable for tests.
 - `src/Services.php` — tiny explicit service container (no DI component, to keep
   the static binary small). Accepts an optional `HttpClientInterface` for tests.
-- `src/Config/` — `ConfigResolver` finds the `.llmor` dir (walk up from CWD, else
-  `~/.llmor`); `EnvFile` reads/writes the `.env`; `Configuration` is the resolved
-  value object.
+- `src/Config/` — `ConfigResolver` reads both the project `.llmor/.env` (walking
+  up from CWD) and `~/.llmor/.env`, then layers them **per key**: home < project
+  < `LLMOR_*` env vars (empty values fall back, not shadow). The session dir is
+  the project `.llmor` when present, else `~/.llmor`. `EnvFile` reads/writes the
+  `.env`; `Configuration` is the resolved value object.
 - `src/Auth/` — `Session` (value object), `SessionStore` (`session.json`, 0600),
   `AccessTokenSigner` (pure HMAC signer), `SessionManager` (create → sign-in →
   re-auth state machine).
-- `src/Client/` — `LlmorClient` signs each request and retries once on 401;
-  `ApiResponse` normalises the `{data, meta}` envelope; typed exceptions in
-  `Client/Exception/`.
+- `src/Client/` — `LlmorClient` signs each request, sends the configured vendor
+  key as the `X-Vendor` header, and retries once on 401; `ApiResponse` normalises
+  the `{data, meta}` envelope; typed exceptions in `Client/Exception/`.
 - `src/Command/` — Symfony commands (`auth:login`, `auth:logout`, `auth:whoami`,
   `conversations:list`). `AbstractCommand` holds shared error/format helpers.
 
@@ -32,6 +34,13 @@ Buildable to a phar (Box) or a self-contained static binary (static-php-cli).
 3. `POST /v1/auth/signin` `{identifier, secret}` (signed) upgrades to a 30-day
    signed-in session. Tokens older than 3600s are rejected server-side.
 4. `401` ⇒ discard session, re-authenticate, retry once.
+
+Vendor scoping: there are two vendor identifiers. The **key** (string) is sent
+as the `X-Vendor` header — server resolves it via `vendorRepository->get($key,
+'key')` (`llmonrails/src/Auth/SessionAuth.php`) and checks the user's access. The
+numeric **id** is what `{vendorId}` path segments expect
+(`BaseVendorAction::getAuthorizedVendorFromPayload`). `LLMOR_VENDOR` holds the
+**key**; path-scoped commands still need the numeric id.
 
 ## Conventions
 

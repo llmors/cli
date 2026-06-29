@@ -8,11 +8,18 @@
         "issues": "https://github.com/llmors/cli/issues",
         "source": "https://github.com/llmors/cli"
     },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "git@github.com:ClanCats/SchemaScript.git"
+        }
+    ],
     "require": {
         "php": ">=8.3",
         "ext-json": "*",
         "ext-hash": "*",
         "ext-mbstring": "*",
+        "clancats/schemascript": "dev-master",
         "symfony/console": "^7.1",
         "symfony/http-client": "^7.1"
     },
@@ -35,6 +42,8 @@
     "bin": [
         "bin/llmor"
     ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "config": {
         "sort-packages": true,
         "optimize-autoloader": true,
