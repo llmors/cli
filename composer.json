@@ -1,0 +1,67 @@
+{
+    "name": "llmors/cli",
+    "description": "Command-line client for llmor.com (llmonrails).",
+    "type": "project",
+    "license": "proprietary",
+    "homepage": "https://github.com/llmors/cli",
+    "support": {
+        "issues": "https://github.com/llmors/cli/issues",
+        "source": "https://github.com/llmors/cli"
+    },
+    "require": {
+        "php": ">=8.3",
+        "ext-json": "*",
+        "ext-hash": "*",
+        "ext-mbstring": "*",
+        "symfony/console": "^7.1",
+        "symfony/http-client": "^7.1"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.3",
+        "phpstan/phpstan": "^2.0",
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "humbug/box": "^4.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "Llmor\\Cli\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Llmor\\Cli\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/llmor"
+    ],
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "check": [
+            "@cs",
+            "@stan",
+            "@test"
+        ],
+        "build:phar": "box compile",
+        "build:binary": "bash scripts/build-binary.sh"
+    },
+    "scripts-descriptions": {
+        "test": "Run the PHPUnit test suite.",
+        "stan": "Run PHPStan static analysis.",
+        "cs": "Check coding standards (dry-run).",
+        "cs-fix": "Apply coding-standard fixes.",
+        "check": "Run cs, stan and test in sequence.",
+        "build:phar": "Compile the application into build/llmor.phar.",
+        "build:binary": "Build a self-contained static binary via static-php-cli."
+    }
+}

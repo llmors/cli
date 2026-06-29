@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  phar:
+    name: Build phar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, curl, phar
+          coverage: none
+          tools: composer:v2
+          ini-values: phar.readonly=0
+
+      - name: Install dependencies
+        run: composer install --no-interaction --optimize-autoloader
+
+      - name: Compile phar (Box excludes dev dependencies)
+        run: php -d phar.readonly=0 vendor/bin/box compile
+
+      - name: Upload phar to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/llmor.phar
+          fail_on_unmatched_files: true
+
+  binary:
+    name: Build static binary (linux-x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, curl, phar
+          coverage: none
+          tools: composer:v2
+          ini-values: phar.readonly=0
+
+      - name: Build self-contained binary
+        run: bash scripts/build-binary.sh
+
+      - name: Rename artefact
+        run: mv build/llmor build/llmor-linux-x86_64
+
+      - name: Upload binary to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/llmor-linux-x86_64
+          fail_on_unmatched_files: true

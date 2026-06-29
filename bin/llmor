@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Llmor\Cli\Application;
+
+(static function (): void {
+    $candidates = [
+        __DIR__.'/../vendor/autoload.php',   // running from a source checkout
+        __DIR__.'/../../../autoload.php',     // installed as a Composer dependency
+    ];
+
+    foreach ($candidates as $file) {
+        if (is_file($file)) {
+            require $file;
+
+            return;
+        }
+    }
+
+    fwrite(\STDERR, 'Unable to locate the Composer autoloader. Run "composer install".'.\PHP_EOL);
+    exit(1);
+})();
+
+exit((new Application())->run());

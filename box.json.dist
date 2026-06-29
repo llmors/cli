@@ -1,0 +1,16 @@
+{
+    "$schema": "vendor/humbug/box/res/schema.json",
+    "output": "build/llmor.phar",
+    "alias": "llmor.phar",
+    "banner": "llmor CLI — https://llmor.com",
+    "compression": "GZ",
+    "directories": ["src"],
+    "finder": [
+        {
+            "name": "*.php",
+            "exclude": ["test", "tests", "Tests", "docs", "doc"],
+            "in": ["vendor"]
+        }
+    ],
+    "force-autodiscovery": true
+}

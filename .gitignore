@@ -1,0 +1,20 @@
+# Dependencies
+/vendor/
+
+# Build artefacts
+/build/
+/.spc/
+
+# Tool caches
+/.phpunit.cache/
+/.php-cs-fixer.cache
+/phpstan.neon
+/phpunit.xml
+/box.json
+
+# Local credentials & sessions (never commit these)
+/.llmor/
+.env
+
+# OS / editor noise
+.DS_Store
