@@ -12,6 +12,36 @@ The self-contained binary has **no** runtime requirements.
 
 ## Installation
 
+### Install (recommended)
+
+Download the latest phar and drop it on your `PATH` as `llmor` (requires PHP
+8.3+ with `curl`, `mbstring` and `json`):
+
+```bash
+sudo curl -fsSL https://github.com/llmors/cli/releases/latest/download/llmor.phar -o /usr/local/bin/llmor && sudo chmod +x /usr/local/bin/llmor
+```
+
+Then run `llmor list` to confirm. Linux users who want **no** runtime
+dependency can grab the self-contained binary instead:
+
+```bash
+sudo curl -fsSL https://github.com/llmors/cli/releases/latest/download/llmor-linux-x86_64 -o /usr/local/bin/llmor && sudo chmod +x /usr/local/bin/llmor
+```
+
+### Updating
+
+Update an installed phar in place with the built-in command:
+
+```bash
+sudo llmor self-update            # fetch + verify + replace the latest release
+llmor self-update --check         # just report whether an update is available
+sudo llmor self-update --force    # reinstall the latest even if already current
+```
+
+`self-update` downloads the latest release from GitHub, verifies its SHA-256
+checksum, and atomically swaps the binary. Use `sudo` when llmor lives under
+`/usr/local/bin` (it tells you if it can't write there).
+
 ### From source
 
 ```bash
@@ -83,6 +113,7 @@ file, which is handy for CI.
 ./bin/llmor auth:whoami --json       # raw JSON
 ./bin/llmor auth:logout              # forget the cached session (keeps .env)
 ./bin/llmor conversations:list       # list conversations
+./bin/llmor self-update              # update an installed phar to the latest release
 ```
 
 ## Functions: declarative sync & run

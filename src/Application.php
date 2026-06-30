@@ -11,8 +11,10 @@ use Llmor\Cli\Command\Conversation\ListCommand as ConversationListCommand;
 use Llmor\Cli\Command\Run\RunCommand;
 use Llmor\Cli\Command\Run\RunsListCommand;
 use Llmor\Cli\Command\Run\RunsShowCommand;
+use Llmor\Cli\Command\SelfUpdate\SelfUpdateCommand;
 use Llmor\Cli\Command\Sync\SyncCommand;
 use Llmor\Cli\Config\ConfigResolver;
+use Phar;
 use Symfony\Component\Console\Application as BaseApplication;
 
 /**
@@ -25,7 +27,7 @@ use Symfony\Component\Console\Application as BaseApplication;
 final class Application extends BaseApplication
 {
     public const string NAME = 'llmor';
-    public const string VERSION = '0.1.0';
+    public const string VERSION = '1.0.0';
 
     public function __construct(?Services $services = null, ?ConfigResolver $resolver = null)
     {
@@ -45,6 +47,7 @@ final class Application extends BaseApplication
             new RunCommand($services->client, $services->config->vendor, $workingDir),
             new RunsListCommand($services->client, $services->config->vendor, $workingDir),
             new RunsShowCommand($services->client, $services->config->vendor, $workingDir),
+            new SelfUpdateCommand($services->http, self::VERSION, Phar::running(false) ?: null),
         ]);
     }
 }

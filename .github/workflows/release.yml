@@ -2,18 +2,60 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-main          # serialize so two pushes don't race on patch numbers
+  cancel-in-progress: false
+
 jobs:
+  version:
+    name: Compute version & tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.calc.outputs.version }}   # e.g. 1.0.3
+      tag: ${{ steps.calc.outputs.tag }}           # e.g. v1.0.3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # need full tag history
+          fetch-tags: true
+
+      - id: calc
+        name: Resolve next patch version
+        run: |
+          # major.minor from Application::VERSION (patch digit ignored)
+          BASE=$(sed -n "s/.*VERSION = '\([0-9]\+\.[0-9]\+\).*/\1/p" src/Application.php)
+          if [ -z "$BASE" ]; then echo "Could not read VERSION from src/Application.php" >&2; exit 1; fi
+          # highest existing patch for this major.minor (v1.0.* — not the bare v1.0 tag)
+          LAST=$(git tag -l "v${BASE}.*" | sed "s/^v${BASE}\.//" | sort -n | tail -n1)
+          if [ -z "$LAST" ]; then NEXT=0; else NEXT=$((LAST + 1)); fi
+          VERSION="${BASE}.${NEXT}"
+          TAG="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Releasing $TAG"
+
+      - name: Create & push tag
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.calc.outputs.tag }}"
+          git push origin "${{ steps.calc.outputs.tag }}"
+
   phar:
     name: Build phar
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Inject resolved version
+        run: |
+          sed -i "s/const string VERSION = '[^']*'/const string VERSION = '${{ needs.version.outputs.version }}'/" src/Application.php
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -33,14 +75,20 @@ jobs:
       - name: Upload phar to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.version.outputs.tag }}
           files: build/llmor.phar
           fail_on_unmatched_files: true
 
   binary:
     name: Build static binary (linux-x86_64)
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Inject resolved version
+        run: |
+          sed -i "s/const string VERSION = '[^']*'/const string VERSION = '${{ needs.version.outputs.version }}'/" src/Application.php
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -60,5 +108,6 @@ jobs:
       - name: Upload binary to release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.version.outputs.tag }}
           files: build/llmor-linux-x86_64
           fail_on_unmatched_files: true
