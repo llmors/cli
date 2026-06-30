@@ -1,7 +1,7 @@
 {
     "name": "llmors/cli",
     "description": "Command-line client for llmor.com (llmonrails).",
-    "type": "project",
+    "type": "library",
     "license": "proprietary",
     "homepage": "https://github.com/llmors/cli",
     "support": {

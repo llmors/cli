@@ -9,6 +9,8 @@ use Llmor\Cli\Command\Auth\LogoutCommand;
 use Llmor\Cli\Command\Auth\WhoamiCommand;
 use Llmor\Cli\Command\Conversation\ListCommand as ConversationListCommand;
 use Llmor\Cli\Command\Run\RunCommand;
+use Llmor\Cli\Command\Run\RunsListCommand;
+use Llmor\Cli\Command\Run\RunsShowCommand;
 use Llmor\Cli\Command\Sync\SyncCommand;
 use Llmor\Cli\Config\ConfigResolver;
 use Symfony\Component\Console\Application as BaseApplication;
@@ -41,6 +43,8 @@ final class Application extends BaseApplication
             new ConversationListCommand($services->client),
             new SyncCommand($services->client, $services->config->vendor, $workingDir),
             new RunCommand($services->client, $services->config->vendor, $workingDir),
+            new RunsListCommand($services->client, $services->config->vendor, $workingDir),
+            new RunsShowCommand($services->client, $services->config->vendor, $workingDir),
         ]);
     }
 }
