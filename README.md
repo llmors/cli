@@ -1,8 +1,6 @@
 # llmor CLI
 
 A command-line client for [llmor.com](https://llmor.com) (the llmonrails backend).
-It authenticates against the llmor API, persists the session locally, and
-transparently re-authenticates when the session expires.
 
 ## Requirements
 
@@ -43,13 +41,7 @@ not already on your `PATH`.
 
 ## Configuration & authentication
 
-Credentials and the active session live in a `.llmor/` directory. The CLI reads
-**two** of them and layers the values **per key**: it walks up from the current
-directory to find a project `.llmor/.env`, and falls back to `~/.llmor/.env` for
-any value the project doesn't set. Real `LLMOR_*` environment variables override
-both.
-
-So you can keep your credentials global and override just one value per project —
+You can keep your credentials global and override just one value per project —
 for example email + secret in `~/.llmor/.env` and a project-specific
 `LLMOR_VENDOR` in `./.llmor/.env`. (An empty value, e.g. `LLMOR_VENDOR=`, counts
 as "not set" and falls back.) The session is stored in the project `.llmor/`
@@ -80,16 +72,6 @@ LLMOR_VENDOR=your-vendor-key
 Any `LLMOR_*` environment variable overrides the corresponding value in the
 file, which is handy for CI.
 
-### Choosing a vendor
-
-Nearly every llmor resource is scoped to a vendor, so the CLI sends your
-configured **vendor key** as the `X-Vendor` header on every authenticated
-request (the same value the web app uses). `LLMOR_VENDOR` is the vendor key as
-shown in the llmor web app — not the numeric id from a URL.
-
-It is optional: commands that don't need a vendor (such as `auth:whoami`) work
-without it, but most resource commands will return an error until one is set.
-You can override it per run with the `LLMOR_VENDOR` environment variable.
 
 > The `.llmor/` directory is git-ignored. Credentials are stored with `0600`
 > permissions, as is the cached `session.json`.
@@ -153,20 +135,6 @@ pjas_silicon_docs: Function {
 files. `sync` only writes when something actually changed, so re-running it on an
 unchanged project is a no-op. Both commands resolve your configured vendor **key**
 to its numeric id (functions are pathed by id) and require `LLMOR_VENDOR` to be set.
-
-## How authentication works
-
-1. `POST /v1/auth/session` creates an anonymous session (`token` + `secret`).
-2. `POST /v1/auth/signin` upgrades it to a signed-in session using your
-   credentials.
-3. Every request carries an `X-AccessToken` header — a base64-encoded JSON
-   document `{token, timestamp, signature}` where
-   `signature = HMAC-SHA256("METHOD:REQUEST_URI:TIMESTAMP", secret)`.
-4. If the API returns `401`, the CLI discards the session, re-authenticates, and
-   retries the request once.
-
-The signing logic lives in `src/Auth/AccessTokenSigner.php` and mirrors the
-server-side validation in llmonrails.
 
 ## Development
 
