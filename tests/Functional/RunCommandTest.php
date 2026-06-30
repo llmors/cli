@@ -91,6 +91,35 @@ final class RunCommandTest extends TestCase
         self::assertStringContainsString(\date('H:i:s', 1782769822), $display, 'The timestamp gutter is shown.');
     }
 
+    public function testRendersStringResultRawNotJsonQuoted(): void
+    {
+        $api = (new FakeLlmorApi())
+            ->on('GET', '#/v1/vendors$#', static fn (): array => [200, ['data' => [['id' => 42, 'key' => 'acme-co']]]])
+            ->on('GET', '#/functions$#', static fn (): array => [200, ['data' => []]])
+            ->on('POST', '#/functions$#', static fn (): array => [200, ['data' => ['id' => 7]]])
+            ->on('GET', '#/functions/\d+/files$#', static fn (): array => [200, ['data' => []]])
+            ->on('POST', '#/functions/\d+/build$#', static fn (): array => [200, ['data' => [
+                'id' => 99,
+                'status' => 1,
+                'took' => 12,
+                'memory' => 2048,
+                'result' => "first line\nZürich",
+                'console' => [],
+                'error' => ['message' => '', 'line' => null],
+            ]]]);
+
+        $tester = $this->tester($api);
+        $exit = $tester->execute(['name' => 'pjas_silicon_docs']);
+        $display = $tester->getDisplay();
+
+        self::assertSame(0, $exit, $display);
+        // Real line break and raw unicode — not JSON-quoted/escaped.
+        self::assertStringContainsString("first line\nZürich", $display);
+        self::assertStringNotContainsString('\nZürich', $display, 'Newlines must not be escaped as \\n.');
+        self::assertStringNotContainsString('\\u00fc', $display, 'Unicode must not be escaped as \\uXXXX.');
+        self::assertStringNotContainsString('"first line', $display, 'A string result must not be wrapped in JSON quotes.');
+    }
+
     public function testNoSyncRunsExistingAndReportsFailure(): void
     {
         $existing = ['id' => 7, 'function_key' => 'pjas_silicon_docs'];

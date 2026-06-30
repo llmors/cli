@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Llmor\Cli\Command\Run;
 
 use Llmor\Cli\Console\OutputStyle;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 
 /**
  * Renders a single run/build result — status, timing, return value, console
@@ -58,7 +59,7 @@ trait RendersRun
 
         if (\array_key_exists('result', $run)) {
             $io->section('Result');
-            $io->writeln($this->encodeJson($run['result']));
+            $io->writeln($this->renderResult($run['result']));
         }
 
         $console = $run['console'] ?? [];
@@ -75,6 +76,27 @@ trait RendersRun
             $line = isset($error['line']) ? \sprintf(' (line %s)', self::stringify($error['line'])) : '';
             $io->writeln(self::stringify($error['message']).$line);
         }
+    }
+
+    /**
+     * Format a run's return value for the human-readable Result pane. A string
+     * is printed verbatim — real line breaks, no JSON quoting and no `\uXXXX`
+     * escaping — with formatter tags escaped so arbitrary text (`<foo>`, the
+     * `<error>` style, …) can't be consumed or recoloured by the console
+     * formatter. Structured values fall back to pretty JSON, leaving unicode
+     * and slashes intact for readability. The `--json` paths bypass this and
+     * keep using {@see AbstractCommand::encodeJson()}.
+     */
+    private function renderResult(mixed $result): string
+    {
+        if (\is_string($result)) {
+            return OutputFormatter::escape($result);
+        }
+
+        return (string) \json_encode(
+            $result,
+            \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR,
+        );
     }
 
     /**
