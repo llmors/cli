@@ -106,10 +106,11 @@ final class ManifestParser
 
         /** @var array<string, string> $meta */
         $meta = [];
-        $copyEntry = null;
+        /** @var list<MetadataEntryNode> $copyEntries */
+        $copyEntries = [];
         foreach ($model->getMetadata() as $entry) {
             if ('copy' === $entry->getKey()) {
-                $copyEntry = $entry;
+                $copyEntries[] = $entry;
                 continue;
             }
             $value = MetadataValueReader::asString($entry->getValue());
@@ -144,7 +145,7 @@ final class ManifestParser
             throw $this->invalid($path, $key, \sprintf('[entry] "%s" does not exist', $entryPath));
         }
 
-        $copies = null === $copyEntry ? [] : $this->buildCopies($copyEntry, $path, $key, $baseDir);
+        $copies = $this->buildCopies($copyEntries, $path, $key, $baseDir);
 
         return new FunctionDefinition(
             functionKey: $key,
@@ -160,13 +161,56 @@ final class ManifestParser
     }
 
     /**
-     * Resolve a `[copy]` directive into validated {@see CopyInstruction}s. The optional
-     * `@path('dir/')` annotation gives the destination directory; each source's basename
-     * is appended to it. Sources resolve relative to the manifest directory.
+     * Resolve one or more `[copy]` directives into validated {@see CopyInstruction}s. A
+     * function may declare several `[copy]` blocks, each with its own optional `@path('dir/')`
+     * annotation giving that block's destination directory; each source's basename is appended
+     * to it. Sources resolve relative to the manifest directory. Destinations are deduplicated
+     * across **all** blocks, so a collision between two blocks is an error.
+     *
+     * @param list<MetadataEntryNode> $entries
      *
      * @return list<CopyInstruction>
      */
-    private function buildCopies(MetadataEntryNode $entry, string $path, string $key, string $baseDir): array
+    private function buildCopies(array $entries, string $path, string $key, string $baseDir): array
+    {
+        $copies = [];
+        $seen = [];
+        foreach ($entries as $entry) {
+            $destDir = $this->copyDestDir($entry, $path, $key);
+
+            $value = $entry->getValue();
+            $items = $value instanceof MetadataListNode ? $value->getItems() : [$value];
+
+            foreach ($items as $item) {
+                $source = MetadataValueReader::asString($item);
+                if (null === $source || '' === $source) {
+                    throw $this->invalid($path, $key, '[copy] must be a list of non-empty source path strings');
+                }
+
+                $sourcePath = $this->resolvePath($baseDir, $source);
+                if (!\is_file($sourcePath)) {
+                    throw $this->invalid($path, $key, \sprintf('[copy] source "%s" does not exist', $sourcePath));
+                }
+
+                $destination = ('' === $destDir ? '' : $destDir.'/').\basename($source);
+                if (isset($seen[$destination])) {
+                    throw $this->invalid($path, $key, \sprintf('[copy] destination "%s" is declared more than once', $destination));
+                }
+                $seen[$destination] = true;
+
+                $copies[] = new CopyInstruction($sourcePath, $destination);
+            }
+        }
+
+        return $copies;
+    }
+
+    /**
+     * Resolve a `[copy]` block's destination directory from its optional `@path('dir/')`
+     * annotation, with surrounding slashes trimmed. Returns '' when no annotation is present
+     * (copied files land at the function root).
+     */
+    private function copyDestDir(MetadataEntryNode $entry, string $path, string $key): string
     {
         $destDir = '';
         foreach ($entry->getAnnotations() as $annotation) {
@@ -180,34 +224,8 @@ final class ManifestParser
             }
             break;
         }
-        $destDir = \trim($destDir, '/');
 
-        $value = $entry->getValue();
-        $items = $value instanceof MetadataListNode ? $value->getItems() : [$value];
-
-        $copies = [];
-        $seen = [];
-        foreach ($items as $item) {
-            $source = MetadataValueReader::asString($item);
-            if (null === $source || '' === $source) {
-                throw $this->invalid($path, $key, '[copy] must be a list of non-empty source path strings');
-            }
-
-            $sourcePath = $this->resolvePath($baseDir, $source);
-            if (!\is_file($sourcePath)) {
-                throw $this->invalid($path, $key, \sprintf('[copy] source "%s" does not exist', $sourcePath));
-            }
-
-            $destination = ('' === $destDir ? '' : $destDir.'/').\basename($source);
-            if (isset($seen[$destination])) {
-                throw $this->invalid($path, $key, \sprintf('[copy] destination "%s" is declared more than once', $destination));
-            }
-            $seen[$destination] = true;
-
-            $copies[] = new CopyInstruction($sourcePath, $destination);
-        }
-
-        return $copies;
+        return \trim($destDir, '/');
     }
 
     /**

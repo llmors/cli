@@ -145,6 +145,9 @@ pjas_silicon_docs: Function {
   relative to the manifest, and the optional `@path('dir/')` sets the destination
   directory (the source's basename is appended) — so the example lands the project
   README at `docs/README.md`. Copied files sync like any other (hashing, `--prune`).
+  A function may declare **multiple** `[copy]` blocks, each with its own `@path`, so
+  same-basename files can coexist under different dirs (e.g. several `index.md` under
+  `docs/silicon/`, `docs/sandbox/`, `docs/reports/`).
 
 ```bash
 ./bin/llmor sync                     # create/update every function + mirror its files

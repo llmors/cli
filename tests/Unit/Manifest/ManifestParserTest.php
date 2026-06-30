@@ -128,6 +128,42 @@ final class ManifestParserTest extends TestCase
         );
     }
 
+    public function testResolvesMultipleCopyBlocks(): void
+    {
+        $this->writeProjectFile('help/silicon/index.md', "# silicon\n");
+        $this->writeProjectFile('help/sandbox/index.md', "# sandbox\n");
+
+        $manifest = (new ManifestParser())->parse(
+            "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n"
+            ."  @path('docs/silicon/')\n  [copy] = {\n    './help/silicon/index.md',\n  }\n"
+            ."  @path('docs/sandbox/')\n  [copy] = {\n    './help/sandbox/index.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+
+        $copies = $manifest->functions[0]->copies;
+        self::assertCount(2, $copies, 'both [copy] blocks must survive — the second must not override the first.');
+        $destinations = \array_map(static fn ($c): string => $c->destination, $copies);
+        self::assertSame(['docs/silicon/index.md', 'docs/sandbox/index.md'], $destinations);
+    }
+
+    public function testRejectsCollidingCopyDestinationsAcrossBlocks(): void
+    {
+        $this->writeProjectFile('a/index.md', "# a\n");
+        $this->writeProjectFile('b/index.md', "# b\n");
+
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/declared more than once/');
+
+        (new ManifestParser())->parse(
+            "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n"
+            ."  @path('docs/')\n  [copy] = {\n    './a/index.md',\n  }\n"
+            ."  @path('docs/')\n  [copy] = {\n    './b/index.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
     private function validManifest(): string
     {
         return <<<SCSC
