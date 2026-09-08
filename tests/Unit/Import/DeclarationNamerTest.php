@@ -6,6 +6,7 @@ namespace Llmor\Cli\Tests\Unit\Import;
 
 use Llmor\Cli\Import\DeclarationNamer;
 use Llmor\Cli\Manifest\AppDefinition;
+use Llmor\Cli\Manifest\ConfigDefinition;
 use Llmor\Cli\Manifest\FunctionDefinition;
 use Llmor\Cli\Manifest\Manifest;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -71,6 +72,16 @@ final class DeclarationNamerTest extends TestCase
         self::assertSame('an app', $namer->describeTaken('support_bot'));
     }
 
+    /** The settings block sits in that namespace too, and it is not an app. */
+    public function testTheConfigBlockClaimsItsNameAsWell(): void
+    {
+        $namer = new DeclarationNamer(new Manifest('/m/llmor.scsc', [], [], new ConfigDefinition('prompts', 'llmor')));
+
+        self::assertSame('config block', $namer->takenBy('llmor'));
+        self::assertSame('a config block', $namer->describeTaken('llmor'));
+        self::assertSame('llmor_2', $namer->nextFree('llmor'));
+    }
+
     public function testNextFreeSkipsWhatIsAlreadyDeclared(): void
     {
         $namer = new DeclarationNamer($this->manifest());
@@ -112,6 +123,6 @@ final class DeclarationNamerTest extends TestCase
 
     private function app(string $declaration): AppDefinition
     {
-        return new AppDefinition(declaration: $declaration, appKey: 'llmor/generic');
+        return new AppDefinition(declaration: $declaration, appType: 'llmor/generic');
     }
 }

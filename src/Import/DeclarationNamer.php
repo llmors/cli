@@ -32,6 +32,12 @@ final class DeclarationNamer
         foreach ($manifest->apps as $app) {
             $this->taken[$app->declaration] = 'app';
         }
+
+        // The settings block holds a name in the same namespace, so importing over it
+        // has to be refused with advice rather than by the parse check in AppImporter.
+        if ('' !== $manifest->config->declaration) {
+            $this->taken[$manifest->config->declaration] = 'config block';
+        }
     }
 
     /** The kind of declaration already using this name, or null when it is free. */
@@ -56,9 +62,9 @@ final class DeclarationNamer
     /**
      * A declaration name for a remote app, ignoring whether it is free.
      */
-    public function suggest(?string $remoteName, string $appKey, int $appId): string
+    public function suggest(?string $remoteName, string $appType, int $appId): string
     {
-        foreach ([$remoteName, self::appKeyLabel($appKey)] as $candidate) {
+        foreach ([$remoteName, self::appTypeLabel($appType)] as $candidate) {
             $slug = self::slug((string) $candidate);
             if ('' !== $slug) {
                 return $slug;
@@ -86,9 +92,9 @@ final class DeclarationNamer
     }
 
     /** `llmor/generic` → `generic_app`, for an app with no name of its own. */
-    private static function appKeyLabel(string $appKey): string
+    private static function appTypeLabel(string $appType): string
     {
-        $suffix = \substr($appKey, (int) \strrpos($appKey, '/') + 1);
+        $suffix = \substr($appType, (int) \strrpos($appType, '/') + 1);
 
         return '' === $suffix ? '' : $suffix.'_app';
     }

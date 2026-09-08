@@ -131,7 +131,7 @@ final class AppDeclarationWriter
      */
     private function writeScalars(ScscBlock $block, AppDefinition $app): void
     {
-        $values = ['app_key' => ScscEncoder::string($app->appKey)];
+        $values = ['app_type' => ScscEncoder::string($app->appType)];
 
         foreach (['name' => $app->name, 'description' => $app->description, 'model' => $app->model] as $key => $value) {
             if (null !== $value) {

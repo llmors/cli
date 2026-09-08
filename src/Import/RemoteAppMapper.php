@@ -53,14 +53,14 @@ final class RemoteAppMapper
     {
         $this->warnings = [];
 
-        $appKey = Json::stringOf($record['app_key'] ?? null);
-        if ('' === $appKey) {
-            throw new ImportException(\sprintf('App #%d has no app_key, so there is nothing to declare.', $appId));
+        $appType = Json::stringOf($record['app_key'] ?? null);
+        if ('' === $appType) {
+            throw new ImportException(\sprintf('App #%d has no app type, so there is nothing to declare.', $appId));
         }
 
         $definition = new AppDefinition(
             declaration: $declaration,
-            appKey: $appKey,
+            appType: $appType,
             name: $this->name($record),
             description: $this->description($record),
             model: $this->model($record),

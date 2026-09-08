@@ -86,7 +86,7 @@ final class AppImporter
 
         // Last, because it is the one write that is safe to repeat, and because an app
         // recorded against a manifest that failed to save would be misleading.
-        $this->lock->record($this->vendorKey, $plan->declaration(), $plan->appId, $plan->definition->appKey);
+        $this->lock->record($this->vendorKey, $plan->declaration(), $plan->appId, $plan->definition->appType);
     }
 
     /**
@@ -108,7 +108,7 @@ final class AppImporter
         }
 
         $expected = $mapped->definition;
-        $same = $back->appKey === $expected->appKey
+        $same = $back->appType === $expected->appType
             && $back->name === $expected->name
             && $back->description === $expected->description
             && $back->model === $expected->model

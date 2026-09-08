@@ -58,18 +58,19 @@ final class RemoteAppIndex
     /**
      * Apps matching a name and app type exactly.
      *
-     * The server's `?search=` is a LIKE across name *or* app_key, so it over-matches
-     * badly in a vendor with many apps of one type; the exact filtering happens here.
+     * The server's `?search=` is a LIKE across name *or* `app_key` (its spelling of
+     * the app type), so it over-matches badly in a vendor with many apps of one type;
+     * the exact filtering happens here.
      * A record with no usable id could never be adopted anyway, so the id index is the
      * whole candidate pool.
      *
      * @return list<array<string, mixed>>
      */
-    public function matching(string $name, string $appKey): array
+    public function matching(string $name, string $appType): array
     {
         $matches = [];
         foreach ($this->byId as $record) {
-            if (self::describes($record, $name, $appKey)) {
+            if (self::describes($record, $name, $appType)) {
                 $matches[] = $record;
             }
         }
@@ -78,7 +79,7 @@ final class RemoteAppIndex
     }
 
     /**
-     * Would a declaration with this `[name]` and `[app_key]` adopt this remote record?
+     * Would a declaration with this `[name]` and `[app_type]` adopt this remote record?
      *
      * The single expression of the adoption rule. `apps:import` warns by *predicting*
      * what `sync` would adopt, and a prediction that restates the rule in its own words
@@ -87,10 +88,10 @@ final class RemoteAppIndex
      *
      * @param array<string, mixed> $record
      */
-    public static function describes(array $record, ?string $name, string $appKey): bool
+    public static function describes(array $record, ?string $name, string $appType): bool
     {
         return null !== $name
             && Json::stringOf($record['name'] ?? null) === $name
-            && Json::stringOf($record['app_key'] ?? null) === $appKey;
+            && Json::stringOf($record['app_key'] ?? null) === $appType;
     }
 }

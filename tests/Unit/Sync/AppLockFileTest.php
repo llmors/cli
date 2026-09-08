@@ -30,7 +30,7 @@ final class AppLockFileTest extends TestCase
         $lock = $this->lock();
         $lock->record('acme-co', 'support_bot', 17, 'llmor/generic');
 
-        self::assertSame(['id' => 17, 'app_key' => 'llmor/generic'], $lock->lookup('acme-co', 'support_bot'));
+        self::assertSame(['id' => 17, 'app_type' => 'llmor/generic'], $lock->lookup('acme-co', 'support_bot'));
         self::assertNull($lock->lookup('acme-co', 'other'));
         self::assertNull($lock->lookup('other-vendor', 'support_bot'), 'Bindings are per vendor.');
         self::assertTrue($lock->wasWritten());
@@ -51,10 +51,10 @@ final class AppLockFileTest extends TestCase
             'version' => 1,
             'vendors' => [
                 'acme-co' => ['apps' => [
-                    'keep_me' => ['id' => 1, 'app_key' => 'llmor/generic'],
-                    'update_me' => ['id' => 2, 'app_key' => 'llmor/generic'],
+                    'keep_me' => ['id' => 1, 'app_type' => 'llmor/generic'],
+                    'update_me' => ['id' => 2, 'app_type' => 'llmor/generic'],
                 ]],
-                'staging' => ['apps' => ['keep_me' => ['id' => 99, 'app_key' => 'llmor/generic']]],
+                'staging' => ['apps' => ['keep_me' => ['id' => 99, 'app_type' => 'llmor/generic']]],
             ],
         ]));
 
@@ -74,7 +74,7 @@ final class AppLockFileTest extends TestCase
             'version' => 1,
             'note' => 'hand-written',
             'vendors' => ['acme-co' => [
-                'apps' => ['a' => ['id' => 1, 'app_key' => 'llmor/generic', 'extra' => 'kept']],
+                'apps' => ['a' => ['id' => 1, 'app_type' => 'llmor/generic', 'extra' => 'kept']],
                 'datastores' => ['something' => 5],
             ]],
         ]));
@@ -186,9 +186,48 @@ final class AppLockFileTest extends TestCase
         self::assertNull($this->lock()->lookup('acme-co', 'a'));
     }
 
+    public function testReadsALegacyAppKeyEntry(): void
+    {
+        $this->writeLock([
+            'version' => 1,
+            'vendors' => ['acme-co' => ['apps' => ['support_bot' => ['id' => 17, 'app_key' => 'llmor/generic']]]],
+        ]);
+
+        $lock = $this->lock();
+
+        self::assertSame(['id' => 17, 'app_type' => 'llmor/generic'], $lock->lookup('acme-co', 'support_bot'));
+        self::assertSame([], $lock->warnings, 'The pre-rename spelling is legacy, not malformed.');
+        self::assertSame(['support_bot' => 17], $lock->claimedIds('acme-co'));
+    }
+
+    public function testRecordingRewritesALegacyAppKeyEntry(): void
+    {
+        $this->writeLock([
+            'version' => 1,
+            'vendors' => ['acme-co' => ['apps' => ['support_bot' => ['id' => 17, 'app_key' => 'llmor/generic']]]],
+        ]);
+
+        // Same id, same type: the binding is already correct, so only the spelling of
+        // the field changes. Reading it back cannot show that — hence the on-disk check.
+        $this->lock()->record('acme-co', 'support_bot', 17, 'llmor/generic');
+
+        self::assertSame(
+            ['id' => 17, 'app_type' => 'llmor/generic'],
+            $this->decodeLock()['vendors']['acme-co']['apps']['support_bot'],
+        );
+    }
+
     private function lock(): AppLockFile
     {
         return new AppLockFile($this->projectPath('llmor.lock'));
+    }
+
+    /**
+     * @param array<string, mixed> $document
+     */
+    private function writeLock(array $document): void
+    {
+        $this->writeProjectFile('llmor.lock', (string) \json_encode($document));
     }
 
     /**

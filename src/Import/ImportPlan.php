@@ -49,7 +49,7 @@ final class ImportPlan
         return [
             'app_id' => $this->appId,
             'declaration' => $this->declaration(),
-            'app_key' => $this->definition->appKey,
+            'app_type' => $this->definition->appType,
             'manifest' => $this->manifestPath,
             'manifest_created' => !$this->manifestExists,
             'lock' => $this->lockPath,

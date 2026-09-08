@@ -169,9 +169,9 @@ final class AppResolverTest extends TestCase
         string $declaration = 'support',
         ?string $name = 'Support Bot',
         ?int $id = null,
-        string $appKey = 'llmor/generic',
+        string $appType = 'llmor/generic',
     ): AppDefinition {
-        return new AppDefinition(declaration: $declaration, appKey: $appKey, name: $name, id: $id);
+        return new AppDefinition(declaration: $declaration, appType: $appType, name: $name, id: $id);
     }
 
     private function lock(): AppLockFile

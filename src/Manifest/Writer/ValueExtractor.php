@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Llmor\Cli\Manifest\Writer;
 
+use Llmor\Cli\Manifest\ConfigDefinition;
 use Llmor\Cli\Sync\FunctionLimits;
 
 /**
@@ -18,6 +19,9 @@ use Llmor\Cli\Sync\FunctionLimits;
  * Only top-level `[parameters]` entries are considered. `@file` works at any depth, but
  * a filename derived from a nested path stops being recognisable, and nested values are
  * rarely the long ones.
+ *
+ * Where the files go is the project's call: `prompts/` unless the manifest's `: Config`
+ * block names another `[prompt_dir]`.
  */
 final class ValueExtractor
 {
@@ -25,10 +29,12 @@ final class ValueExtractor
     private const MIN_LENGTH = 160;
 
     /**
-     * @param string $directory manifest-relative POSIX directory for extracted files
+     * @param string $directory manifest-relative POSIX directory for extracted files —
+     *                          the manifest's own `[prompt_dir]` when it declares one
+     *                          ({@see ConfigDefinition})
      */
     public function __construct(
-        private readonly string $directory = 'prompts',
+        private readonly string $directory = ConfigDefinition::DEFAULT_PROMPT_DIR,
         private readonly int $minLength = self::MIN_LENGTH,
     ) {
     }

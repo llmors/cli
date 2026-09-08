@@ -430,7 +430,7 @@ final class TestCommand extends AbstractManifestCommand
         if ($json) {
             $output->writeln($this->encodeJson(\array_map(static fn (AppDefinition $a): array => [
                 'declaration' => $a->declaration,
-                'app_key' => $a->appKey,
+                'app_type' => $a->appType,
                 'name' => $a->name,
                 'model' => $a->model,
             ], $manifest->apps)));
@@ -446,10 +446,10 @@ final class TestCommand extends AbstractManifestCommand
 
         $rows = [];
         foreach ($manifest->apps as $app) {
-            $rows[] = [$app->declaration, $app->appKey, $app->name ?? '', $app->model ?? ''];
+            $rows[] = [$app->declaration, $app->appType, $app->name ?? '', $app->model ?? ''];
         }
 
-        $io->table(['app', 'app_key', 'name', 'model'], $rows);
+        $io->table(['app', 'app_type', 'name', 'model'], $rows);
         $io->meta(\sprintf('%d app(s) · talk to one with  llmor test <app>', \count($manifest->apps)));
 
         return Command::SUCCESS;

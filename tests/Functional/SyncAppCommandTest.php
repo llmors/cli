@@ -52,14 +52,14 @@ final class SyncAppCommandTest extends TestCase
 
         $create = $api->findCall('POST', '#/v1/vendors/42/apps$#');
         self::assertNotNull($create);
-        self::assertSame('llmor/generic', $create['body']['app_key']);
+        self::assertSame('llmor/generic', $create['body']['app_key'], "The API's spelling of [app_type] is what goes on the wire.");
         self::assertSame('Support Bot', $create['body']['name']);
         self::assertSame("You are a support agent.\n", $create['body']['parameters']['prompt'], '@file loads the prompt from disk.');
         self::assertSame(0.2, $create['body']['parameters']['temperature']);
         self::assertSame(4, $create['body']['completion_vendor_model_id']);
 
         self::assertSame(
-            ['id' => 17, 'app_key' => 'llmor/generic'],
+            ['id' => 17, 'app_type' => 'llmor/generic'],
             $this->lock()->lookup('acme-co', 'support_bot'),
         );
 
@@ -85,6 +85,36 @@ final class SyncAppCommandTest extends TestCase
         self::assertSame([], $api->writes(), 'An idempotent run must not write.');
 
         self::assertNull($api->findCall('GET', '#/models#'), 'The model list is only fetched when [model] differs.');
+    }
+
+    public function testAPreRenameProjectSyncsCleanAndReportsTheDeprecation(): void
+    {
+        // Everything a project written before the [app_key] -> [app_type] rename has on
+        // disk: the old manifest key, and a lock entry with the old field name.
+        $this->writeProjectFile('llmor.scsc', \str_replace('[app_type]   ', '[app_key]', $this->appManifest()));
+        $this->writeProjectFile('llmor.lock', (string) \json_encode([
+            'version' => 1,
+            'vendors' => ['acme-co' => ['apps' => ['support_bot' => ['id' => 17, 'app_key' => 'llmor/generic']]]],
+        ]));
+
+        $api = $this->api()
+            ->on('GET', '#/apps$#', fn (): array => [200, ['data' => [$this->remoteApp()]]])
+            ->on('GET', '#/apps/17$#', fn (): array => [200, ['data' => $this->remoteApp()]]);
+
+        $tester = $this->tester($api);
+        self::assertSame(0, $tester->execute([]), $tester->getDisplay());
+
+        $display = $tester->getDisplay();
+        self::assertStringContainsString('unchanged', $display, 'The old spellings still resolve to the same app.');
+        self::assertStringContainsString('[app_key] is deprecated', $display);
+
+        self::assertSame([], $api->writes(), 'A rename is a local concern; the API sees no change.');
+
+        // The lock is migrated in place, so the next run has nothing left to rewrite.
+        self::assertSame(
+            ['id' => 17, 'app_type' => 'llmor/generic'],
+            \json_decode($this->readProjectFile('llmor.lock'), true, 32, \JSON_THROW_ON_ERROR)['vendors']['acme-co']['apps']['support_bot'],
+        );
     }
 
     public function testOnlyChangedParametersAreSentAndNamedInTheReport(): void
@@ -172,7 +202,7 @@ final class SyncAppCommandTest extends TestCase
         $this->writeProjectFile('llmor.scsc', $this->appManifest().<<<'SCSC'
 
             research_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Research Bot'
             }
             SCSC);
@@ -230,7 +260,7 @@ final class SyncAppCommandTest extends TestCase
     {
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/silicon'
+              [app_type] = 'llmor/silicon'
               [name]    = 'Support Bot'
             }
             SCSC);
@@ -291,7 +321,7 @@ final class SyncAppCommandTest extends TestCase
         $this->writeProjectFile('main/main.lua', "return success('x')\n");
         $this->writeProjectFile('llmor.scsc', $this->functionManifest().<<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [functions] = {
                 [greeter] = { units = 'metric' }
@@ -325,7 +355,7 @@ final class SyncAppCommandTest extends TestCase
         // happened to resolve would silently unlink a function nobody touched.
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [functions] = { known_fn, ghost_fn }
             }
@@ -352,7 +382,7 @@ final class SyncAppCommandTest extends TestCase
     {
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [functions] = { [weather] = { units = 'metric' } }
             }
@@ -378,7 +408,7 @@ final class SyncAppCommandTest extends TestCase
     {
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [functions] = {}
             }
@@ -427,7 +457,7 @@ final class SyncAppCommandTest extends TestCase
     {
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [subagents] = {
                 [triage] = {
@@ -440,7 +470,7 @@ final class SyncAppCommandTest extends TestCase
             }
 
             research_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Research Bot'
             }
             SCSC);
@@ -488,13 +518,13 @@ final class SyncAppCommandTest extends TestCase
         // so whether the manifest happens to be in dependency order does not matter.
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [subagents] = { [triage] = { [app] = research_bot } }
             }
 
             research_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Research Bot'
             }
             SCSC);
@@ -528,13 +558,13 @@ final class SyncAppCommandTest extends TestCase
         // report matters most.
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [subagents] = { [triage] = { [app] = research_bot } }
             }
 
             research_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Research Bot'
             }
             SCSC);
@@ -552,13 +582,13 @@ final class SyncAppCommandTest extends TestCase
     {
         $this->writeProjectFile('llmor.scsc', <<<'SCSC'
             support_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Support Bot'
               [subagents] = { [triage] = { [app] = research_bot } }
             }
 
             research_bot: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [name]    = 'Research Bot'
             }
             SCSC);
@@ -631,7 +661,7 @@ final class SyncAppCommandTest extends TestCase
     {
         return <<<'SCSC'
             support_bot: App {
-              [app_key]     = 'llmor/generic'
+              [app_type]    = 'llmor/generic'
               [name]        = 'Support Bot'
               [description] = 'Answers customer questions.'
               [model]       = 'gpt-4o'

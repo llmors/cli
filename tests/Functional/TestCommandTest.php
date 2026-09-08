@@ -27,7 +27,7 @@ final class TestCommandTest extends TestCase
 
     private const MANIFEST = <<<'SCSC'
         support_bot: App {
-          [app_key]     = 'llmor/generic'
+          [app_type]    = 'llmor/generic'
           [name]        = 'Support Bot'
           [model]       = 'GPT-4'
         }
@@ -39,7 +39,7 @@ final class TestCommandTest extends TestCase
         $this->writeProjectFile('llmor.scsc', self::MANIFEST);
         $this->writeProjectFile('llmor.lock', (string) \json_encode([
             'version' => 1,
-            'vendors' => [TestClient::VENDOR_KEY => ['apps' => ['support_bot' => ['id' => 17, 'app_key' => 'llmor/generic']]]],
+            'vendors' => [TestClient::VENDOR_KEY => ['apps' => ['support_bot' => ['id' => 17, 'app_type' => 'llmor/generic']]]],
         ]));
     }
 
@@ -159,7 +159,7 @@ final class TestCommandTest extends TestCase
 
     public function testFailsWhenTheAppHasNotBeenSyncedYet(): void
     {
-        // no lock entry, and no remote app to adopt by name + app_key either
+        // no lock entry, and no remote app to adopt by name + app type either
         $this->writeProjectFile('llmor.lock', (string) \json_encode(['version' => 1, 'vendors' => []]));
 
         $tester = $this->tester($this->api(remoteApps: []));

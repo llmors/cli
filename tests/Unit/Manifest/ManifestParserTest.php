@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace Llmor\Cli\Tests\Unit\Manifest;
 
+use Llmor\Cli\Manifest\Builder\ConfigDefinitionBuilder;
+use Llmor\Cli\Manifest\ConfigDefinition;
 use Llmor\Cli\Manifest\ManifestException;
 use Llmor\Cli\Manifest\ManifestParser;
 use Llmor\Cli\Tests\Support\TempProject;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(ManifestParser::class)]
+#[CoversClass(ConfigDefinitionBuilder::class)]
+#[CoversClass(ConfigDefinition::class)]
 final class ManifestParserTest extends TestCase
 {
     use TempProject;
@@ -229,6 +234,127 @@ final class ManifestParserTest extends TestCase
         (new ManifestParser())->parse(
             "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n"
             ."  @path('docs/')\n  [copy] = {\n    './help/*.md',\n    './other/a.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    public function testReadsTheProjectConfigBlock(): void
+    {
+        $manifest = (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompt_dir] = './resources/prompts'\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+
+        self::assertSame('resources/prompts', $manifest->config->promptDir);
+        self::assertSame([], $manifest->functions, 'a Config block declares nothing syncable.');
+        self::assertSame([], $manifest->apps);
+    }
+
+    public function testDefaultsThePromptDirWithoutAConfigBlock(): void
+    {
+        $manifest = (new ManifestParser())->parse($this->validManifest(), 'llmor.scsc', $this->projectDir);
+
+        self::assertSame(ConfigDefinition::DEFAULT_PROMPT_DIR, $manifest->config->promptDir);
+    }
+
+    /**
+     * The value ends up both in an `@file('./…')` reference and joined onto the manifest
+     * directory, so however it is spelled it has to arrive as one plain relative path.
+     */
+    #[DataProvider('promptDirSpellings')]
+    public function testNormalisesThePromptDir(string $declared): void
+    {
+        $manifest = (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompt_dir] = '$declared'\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+
+        self::assertSame('resources/prompts', $manifest->config->promptDir);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function promptDirSpellings(): iterable
+    {
+        yield 'plain' => ['resources/prompts'];
+        yield 'dot-slash prefixed' => ['./resources/prompts'];
+        yield 'trailing slash' => ['./resources/prompts/'];
+        yield 'windows separators' => ['.\\resources\\prompts'];
+    }
+
+    #[DataProvider('unusablePromptDirs')]
+    public function testRejectsAPromptDirThatIsNotAPlaceInTheProject(string $declared): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/\[prompt_dir\]/');
+
+        (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompt_dir] = '$declared'\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function unusablePromptDirs(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'the manifest directory itself' => ['.'];
+        yield 'escaping the project' => ['../outside'];
+        yield 'escaping further down' => ['./resources/../../outside'];
+        yield 'absolute' => ['/etc/llmor'];
+        yield 'windows absolute' => ['C:\\prompts'];
+    }
+
+    public function testRejectsAnUnknownConfigSetting(): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/\[prompts_dir\] is not a setting/');
+
+        (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompts_dir] = './prompts'\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    public function testRejectsASecondConfigBlock(): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/more than one ": Config" block/');
+
+        (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompt_dir] = './a'\n}\n\nother: Config {\n  [prompt_dir] = './b'\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    public function testConfigSharesTheDeclarationNamespace(): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/Duplicate declaration "llmor"/');
+
+        (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompt_dir] = './prompts'\n}\n\nllmor: App {\n  [app_type] = 'llmor/generic'\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    public function testNamesTheKindWhenASubagentTargetsTheConfigBlock(): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/which is a config, not an app/');
+
+        (new ManifestParser())->parse(
+            "llmor: Config {\n  [prompt_dir] = './prompts'\n}\n\na: App {\n  [app_type] = 'llmor/generic'\n  [subagents] = {\n    [helper] = { [app] = llmor }\n  }\n}",
             'llmor.scsc',
             $this->projectDir,
         );

@@ -45,7 +45,7 @@ final class AppDefinitionBuilderTest extends TestCase
             }
 
             support_bot: App {
-              [app_key]     = 'llmor/generic'
+              [app_type]    = 'llmor/generic'
               [name]        = 'Support Bot'
               [description] = 'Answers questions.'
               [model]       = 'gpt-4o'
@@ -58,7 +58,7 @@ final class AppDefinitionBuilderTest extends TestCase
 
         $app = $manifest->apps[0];
         self::assertSame('support_bot', $app->declaration);
-        self::assertSame('llmor/generic', $app->appKey);
+        self::assertSame('llmor/generic', $app->appType);
         self::assertSame('Support Bot', $app->name);
         self::assertSame('Answers questions.', $app->description);
         self::assertSame('gpt-4o', $app->model);
@@ -69,7 +69,7 @@ final class AppDefinitionBuilderTest extends TestCase
 
     public function testOnlyAppKeyIsRequired(): void
     {
-        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/silicon'\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'llmor/silicon'\n}");
 
         self::assertNull($app->name, 'The server falls back to the app type name.');
         self::assertNull($app->description);
@@ -82,7 +82,7 @@ final class AppDefinitionBuilderTest extends TestCase
     {
         $app = $this->parseApp(<<<'SCSC'
             a: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [parameters] = {
                 prompt = 'You are helpful.'
                 temperature = 0.2
@@ -113,7 +113,7 @@ final class AppDefinitionBuilderTest extends TestCase
 
     public function testEmptyBlockEncodesAsAJsonObjectNotAnArray(): void
     {
-        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [parameters] = { extra_body = {} }\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [parameters] = { extra_body = {} }\n}");
 
         self::assertInstanceOf(stdClass::class, $app->parameters->extra_body);
         self::assertSame('{"extra_body":{}}', \json_encode($app->parameters));
@@ -125,7 +125,7 @@ final class AppDefinitionBuilderTest extends TestCase
 
         $app = $this->parseApp(<<<'SCSC'
             a: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [parameters] = {
                 @file('./prompts/support.md')
                 prompt = ''
@@ -140,7 +140,7 @@ final class AppDefinitionBuilderTest extends TestCase
     {
         $this->writeProjectFile('about.txt', 'Long description.');
 
-        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  @file('./about.txt')\n  [description] = ''\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  @file('./about.txt')\n  [description] = ''\n}");
 
         self::assertSame('Long description.', $app->description);
     }
@@ -150,7 +150,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/@file source .* does not exist/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [parameters] = {\n    @file('./nope.md')\n    prompt = ''\n  }\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [parameters] = {\n    @file('./nope.md')\n    prompt = ''\n  }\n}");
     }
 
     public function testNonUtf8FileAnnotationSourceIsRejected(): void
@@ -160,7 +160,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/not valid UTF-8/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [parameters] = {\n    @file('./bad.md')\n    prompt = ''\n  }\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [parameters] = {\n    @file('./bad.md')\n    prompt = ''\n  }\n}");
     }
 
     public function testValuelessParameterIsRejectedAsALikelyTypo(): void
@@ -170,23 +170,39 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/has no value/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [parameters] = { enable_ask_user }\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [parameters] = { enable_ask_user }\n}");
     }
 
-    public function testUnknownAppKeyWithoutASlashIsRejected(): void
+    public function testTheLegacyAppKeySpellingStillParses(): void
+    {
+        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n}");
+
+        self::assertSame('llmor/generic', $app->appType);
+        self::assertTrue($app->legacyTypeKey, 'So sync can report the deprecation.');
+    }
+
+    public function testDeclaringBothTypeKeysIsRejected(): void
     {
         $this->expectException(ManifestException::class);
-        $this->expectExceptionMessageMatches('/\[app_key\]/');
+        $this->expectExceptionMessageMatches('/declare only \[app_type\]/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'generic'\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [app_key] = 'llmor/silicon'\n}");
     }
 
-    public function testUnknownButNamespacedAppKeyIsAllowedThrough(): void
+    public function testUnknownAppTypeWithoutASlashIsRejected(): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/\[app_type\]/');
+
+        $this->parseApp("a: App {\n  [app_type] = 'generic'\n}");
+    }
+
+    public function testUnknownButNamespacedAppTypeIsAllowedThrough(): void
     {
         // A newly released app type must not need a CLI release to become usable.
-        $app = $this->parseApp("a: App {\n  [app_key] = 'vendor/prospective/chatbot'\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'vendor/prospective/chatbot'\n}");
 
-        self::assertSame('vendor/prospective/chatbot', $app->appKey);
+        self::assertSame('vendor/prospective/chatbot', $app->appType);
     }
 
     public function testRejectsNonNumericIdPin(): void
@@ -194,7 +210,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/\[id\]/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [id] = 'seventeen'\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [id] = 'seventeen'\n}");
     }
 
     public function testRejectsTooShortName(): void
@@ -202,7 +218,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/\[name\]/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [name] = 'x'\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [name] = 'x'\n}");
     }
 
     public function testDeclarationNamesShareOneNamespaceWithFunctions(): void
@@ -219,7 +235,7 @@ final class AppDefinitionBuilderTest extends TestCase
             }
 
             support: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
             }
             SCSC);
     }
@@ -228,7 +244,7 @@ final class AppDefinitionBuilderTest extends TestCase
     {
         // The API replaces the whole link table when the field is sent, so "absent"
         // and "empty" have to mean different things.
-        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n}");
 
         self::assertFalse($app->ownsFunctions());
         self::assertNull($app->functions);
@@ -236,7 +252,7 @@ final class AppDefinitionBuilderTest extends TestCase
 
     public function testEmptyFunctionsBlockMeansUnlinkEverything(): void
     {
-        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [functions] = {}\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [functions] = {}\n}");
 
         self::assertTrue($app->ownsFunctions());
         self::assertSame([], $app->functions);
@@ -252,7 +268,7 @@ final class AppDefinitionBuilderTest extends TestCase
     #[DataProvider('functionBlockShapes')]
     public function testEveryReasonableFunctionsShapeIsAccepted(string $block, array $expected): void
     {
-        $app = $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [functions] = $block\n}");
+        $app = $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [functions] = $block\n}");
 
         self::assertSame($expected, \array_map(static fn ($link): string => $link->name, $app->functions ?? []));
     }
@@ -278,14 +294,14 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/must use one shape throughout/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [functions] = {\n    greeter\n    [weather] = {}\n  }\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [functions] = {\n    greeter\n    [weather] = {}\n  }\n}");
     }
 
     public function testFunctionConfigIsReadPerLink(): void
     {
         $app = $this->parseApp(<<<'SCSC'
             a: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [functions] = {
                 [weather] = { units = 'metric'  retries = 2 }
                 [greeter] = {}
@@ -305,14 +321,14 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/lists "weather" more than once/');
 
-        $this->parseApp("a: App {\n  [app_key] = 'llmor/generic'\n  [functions] = { [weather] = {}  [weather] = {} }\n}");
+        $this->parseApp("a: App {\n  [app_type] = 'llmor/generic'\n  [functions] = { [weather] = {}  [weather] = {} }\n}");
     }
 
     public function testSubagentsReadEveryFieldTheApiOwns(): void
     {
         $manifest = $this->parse(<<<'SCSC'
             support: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [subagents] = {
                 [triage] = {
                   [app]               = research
@@ -326,7 +342,7 @@ final class AppDefinitionBuilderTest extends TestCase
             }
 
             research: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
             }
             SCSC);
 
@@ -347,12 +363,12 @@ final class AppDefinitionBuilderTest extends TestCase
     {
         $manifest = $this->parse(<<<'SCSC'
             support: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [subagents] = { research }
             }
 
             research: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
             }
             SCSC);
 
@@ -366,7 +382,7 @@ final class AppDefinitionBuilderTest extends TestCase
     {
         $manifest = $this->parse(<<<'SCSC'
             support: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [subagents] = { [helper] = { [app] = 61 } }
             }
             SCSC);
@@ -380,7 +396,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/references undeclared app "reserch"/');
 
-        $this->parse("support: App {\n  [app_key] = 'llmor/generic'\n  [subagents] = { [triage] = { [app] = reserch } }\n}");
+        $this->parse("support: App {\n  [app_type] = 'llmor/generic'\n  [subagents] = { [triage] = { [app] = reserch } }\n}");
     }
 
     public function testSubagentTargetingAFunctionIsRejected(): void
@@ -397,7 +413,7 @@ final class AppDefinitionBuilderTest extends TestCase
             }
 
             support: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [subagents] = { [triage] = { [app] = greeter } }
             }
             SCSC);
@@ -408,7 +424,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/cannot delegate to itself/');
 
-        $this->parse("support: App {\n  [app_key] = 'llmor/generic'\n  [subagents] = { [me] = { [app] = support } }\n}");
+        $this->parse("support: App {\n  [app_type] = 'llmor/generic'\n  [subagents] = { [me] = { [app] = support } }\n}");
     }
 
     public function testInvalidAliasIsRejected(): void
@@ -416,7 +432,7 @@ final class AppDefinitionBuilderTest extends TestCase
         $this->expectException(ManifestException::class);
         $this->expectExceptionMessageMatches('/alias must be lowercase/');
 
-        $this->parse("support: App {\n  [app_key] = 'llmor/generic'\n  [subagents] = { [Triage] = { [app] = 61 } }\n}");
+        $this->parse("support: App {\n  [app_type] = 'llmor/generic'\n  [subagents] = { [Triage] = { [app] = 61 } }\n}");
     }
 
     public function testCollidingEffectiveToolNamesAreRejected(): void
@@ -428,7 +444,7 @@ final class AppDefinitionBuilderTest extends TestCase
 
         $this->parse(<<<'SCSC'
             support: App {
-              [app_key] = 'llmor/generic'
+              [app_type] = 'llmor/generic'
               [subagents] = {
                 [search] = { [app] = 61 }
                 [other]  = { [app] = 62  [tool_name] = 'search' }

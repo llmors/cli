@@ -129,7 +129,7 @@ final class AppDeclarationWriterTest extends TestCase
 
         $back = self::reparse($written->inline);
 
-        self::assertSame($app->appKey, $back->appKey);
+        self::assertSame($app->appType, $back->appType);
         self::assertSame($app->name, $back->name);
         self::assertSame($app->description, $back->description);
         self::assertSame($app->model, $back->model);
@@ -263,7 +263,7 @@ final class AppDeclarationWriterTest extends TestCase
     ): AppDefinition {
         return new AppDefinition(
             declaration: 'support_bot',
-            appKey: 'llmor/generic',
+            appType: 'llmor/generic',
             name: $name,
             description: $description,
             model: $model,
@@ -277,7 +277,7 @@ final class AppDeclarationWriterTest extends TestCase
     private static function reparse(string $source): AppDefinition
     {
         // The sub-agent targets have to resolve, so the peer is declared alongside.
-        $peer = "research_bot: App {\n  [app_key] = 'llmor/generic'\n}\n";
+        $peer = "research_bot: App {\n  [app_type] = 'llmor/generic'\n}\n";
         $manifest = (new ManifestParser())->parse($source."\n\n".$peer, '/manifest/llmor.scsc', '/manifest');
 
         $app = $manifest->getApp('support_bot');

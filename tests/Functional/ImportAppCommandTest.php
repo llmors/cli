@@ -89,6 +89,40 @@ final class ImportAppCommandTest extends TestCase
         self::assertSame([], $api->writes(), 'an imported sub-agent must not be rewritten');
     }
 
+    /**
+     * The manifest's own `[prompt_dir]` decides where extracted values land, and the
+     * `@file` reference has to keep pointing at them — so this asserts both the path and
+     * that `sync` still reads the prompt back from it.
+     */
+    public function testTheConfiguredPromptDirDecidesWhereExtractedValuesLand(): void
+    {
+        $this->writeProjectFile('llmor.scsc', "llmor: Config {\n  [prompt_dir] = './resources/prompts'\n}\n");
+
+        $api = $this->api();
+        $tester = $this->importer($api);
+        self::assertSame(0, $tester->execute(['id' => '17']), $tester->getDisplay());
+
+        self::assertStringContainsString(
+            "@file('./resources/prompts/support_bot_prompt.md')",
+            $this->readProjectFile('llmor.scsc'),
+        );
+        self::assertSame(
+            "You are a support agent.\nBe brief.\n",
+            $this->readProjectFile('resources/prompts/support_bot_prompt.md'),
+        );
+        self::assertFileDoesNotExist($this->projectPath('prompts'));
+
+        $sync = new CommandTester(new SyncCommand(
+            TestClient::forApi($api, $this->projectDir),
+            TestClient::VENDOR_KEY,
+            $this->projectDir,
+        ));
+
+        self::assertSame(0, $sync->execute([]), $sync->getDisplay());
+        self::assertStringContainsString('unchanged', $sync->getDisplay());
+        self::assertSame([], $api->writes(), 'the relocated prompt must still read back as unchanged');
+    }
+
     public function testCreatesTheManifestTheLockAndTheExtractedPrompt(): void
     {
         $tester = $this->importer($api = $this->api());
@@ -97,7 +131,7 @@ final class ImportAppCommandTest extends TestCase
 
         $manifest = $this->readProjectFile('llmor.scsc');
         self::assertStringContainsString('support_bot: App {', $manifest);
-        self::assertStringContainsString("[app_key]     = 'llmor/generic'", $manifest);
+        self::assertStringContainsString("[app_type]    = 'llmor/generic'", $manifest);
         self::assertStringContainsString("[model]       = 'gpt-4o'", $manifest);
         self::assertStringContainsString("@file('./prompts/support_bot_prompt.md')", $manifest);
         self::assertStringContainsString("prompt = ''", $manifest);
@@ -108,7 +142,7 @@ final class ImportAppCommandTest extends TestCase
         );
 
         self::assertSame(
-            ['id' => 17, 'app_key' => 'llmor/generic'],
+            ['id' => 17, 'app_type' => 'llmor/generic'],
             $this->lock()->lookup(TestClient::VENDOR_KEY, 'support_bot'),
         );
 
@@ -194,7 +228,7 @@ final class ImportAppCommandTest extends TestCase
 
     public function testACollidingDerivedNameFailsNonInteractivelyAndNamesTheFlag(): void
     {
-        $this->writeProjectFile('llmor.scsc', "support_bot: App {\n  [app_key] = 'llmor/generic'\n}\n");
+        $this->writeProjectFile('llmor.scsc', "support_bot: App {\n  [app_type] = 'llmor/generic'\n}\n");
 
         $tester = $this->importer($this->api());
         $tester->setInputs([]);
@@ -226,7 +260,7 @@ final class ImportAppCommandTest extends TestCase
 
     public function testAlreadyDeclaredAppsAreNotOffered(): void
     {
-        $this->writeProjectFile('llmor.scsc', "pinned: App {\n  [app_key] = 'llmor/generic'\n  [id] = 21\n}\n");
+        $this->writeProjectFile('llmor.scsc', "pinned: App {\n  [app_type] = 'llmor/generic'\n  [id] = 21\n}\n");
 
         $tester = $this->importer($this->api([], null, $this->twoApps()));
         $tester->setInputs(['0']);
@@ -241,7 +275,7 @@ final class ImportAppCommandTest extends TestCase
 
     public function testASubagentTargetInTheManifestBecomesADeclarationName(): void
     {
-        $this->writeProjectFile('llmor.scsc', "research_bot: App {\n  [app_key] = 'llmor/generic'\n  [id] = 21\n}\n");
+        $this->writeProjectFile('llmor.scsc', "research_bot: App {\n  [app_type] = 'llmor/generic'\n  [id] = 21\n}\n");
 
         $tester = $this->importer($this->api($this->withSubagents()));
         self::assertSame(0, $tester->execute(['id' => '17']), $tester->getDisplay());
@@ -320,7 +354,7 @@ final class ImportAppCommandTest extends TestCase
         self::assertIsArray($payload);
         self::assertSame(17, $payload['app_id']);
         self::assertSame('support_bot', $payload['declaration']);
-        self::assertSame('llmor/generic', $payload['app_key']);
+        self::assertSame('llmor/generic', $payload['app_type']);
         self::assertTrue($payload['manifest_created']);
         self::assertFalse($payload['dry_run']);
         self::assertSame(['embed_config'], $payload['skipped_fields']);

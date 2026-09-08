@@ -26,7 +26,7 @@ final class RemoteAppMapperTest extends TestCase
         $app = $mapped->definition;
 
         self::assertSame('support_bot', $app->declaration);
-        self::assertSame('llmor/generic', $app->appKey);
+        self::assertSame('llmor/generic', $app->appType);
         self::assertSame('Support Bot', $app->name);
         self::assertSame('Answers questions.', $app->description);
         self::assertSame('gpt-4o', $app->model);
@@ -51,7 +51,7 @@ final class RemoteAppMapperTest extends TestCase
         unset($record['app_key']);
 
         $this->expectException(ImportException::class);
-        $this->expectExceptionMessage('has no app_key');
+        $this->expectExceptionMessage('has no app type');
 
         $this->map($record);
     }
@@ -220,7 +220,7 @@ final class RemoteAppMapperTest extends TestCase
     private function manifestPinning(int $id, string $declaration): Manifest
     {
         return new Manifest('/manifest/llmor.scsc', [], [
-            new AppDefinition(declaration: $declaration, appKey: 'llmor/generic', id: $id),
+            new AppDefinition(declaration: $declaration, appType: 'llmor/generic', id: $id),
         ]);
     }
 

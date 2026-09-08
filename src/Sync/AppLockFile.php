@@ -10,7 +10,7 @@ use JsonException;
  * Binds manifest app declarations to the numeric ids they own, in `llmor.lock`
  * next to the manifest.
  *
- * Functions reconcile by `function_key`, but an app has no such field: `app_key`
+ * Functions reconcile by `function_key`, but an app has no such field: `app_type`
  * names the *type* and is deliberately not unique per vendor, so a record's only
  * identity is its id. This file is what makes `support_bot` in the manifest mean the
  * same app on every machine, and it is meant to be **committed**.
@@ -31,14 +31,24 @@ use JsonException;
  * site: resolution rewrites the file too (a stale entry is forgotten), so a `$dryRun`
  * flag threaded through the writers would still have left that path writing.
  *
- * @phpstan-type LockApp array{id: int, app_key: string}
+ * @phpstan-type LockApp array{id: int, app_type: string}
  */
 final class AppLockFile
 {
     public const FILE_NAME = 'llmor.lock';
 
-    /** Bumped only for a format change this version could not read. */
+    /**
+     * Bumped only for a format change this version could not read.
+     *
+     * The `app_key` → `app_type` rename did *not* bump it: both spellings are read, and
+     * a file written here is still usable by an older CLI — it calls the entry malformed
+     * and falls back to adopting by `[name]` + type, which recovers a named app (and may
+     * recreate an unnamed one).
+     */
     public const VERSION = 1;
+
+    /** The pre-rename spelling of the type field, still read so committed locks resolve. */
+    private const LEGACY_TYPE_KEY = 'app_key';
 
     /** @var array<string, mixed>|null the raw document, loaded lazily */
     private ?array $document = null;
@@ -70,6 +80,9 @@ final class AppLockFile
      * to this vendor. A malformed entry is dropped with a warning rather than failing
      * the run — it is a hand-editable file.
      *
+     * An entry still spelling the type `app_key` is normalised, not malformed; it is
+     * rewritten by the next {@see record()}.
+     *
      * @return LockApp|null
      */
     public function lookup(string $vendorKey, string $declaration): ?array
@@ -77,9 +90,9 @@ final class AppLockFile
         $entry = Json::mapOf($this->apps($vendorKey)[$declaration] ?? null);
 
         $id = Json::idOf($entry['id'] ?? null);
-        $appKey = Json::stringOf($entry['app_key'] ?? null);
+        $appType = Json::stringOf($entry['app_type'] ?? $entry[self::LEGACY_TYPE_KEY] ?? null);
 
-        if (null === $id || '' === $appKey) {
+        if (null === $id || '' === $appType) {
             if ([] !== $entry) {
                 $this->warnings[] = \sprintf('Ignoring malformed %s entry for app "%s".', self::FILE_NAME, $declaration);
             }
@@ -87,7 +100,7 @@ final class AppLockFile
             return null;
         }
 
-        return ['id' => $id, 'app_key' => $appKey];
+        return ['id' => $id, 'app_type' => $appType];
     }
 
     /**
@@ -116,15 +129,19 @@ final class AppLockFile
      * @throws SyncException when the file cannot be written — an unrecorded app is an
      *                       unrecoverable leak, so this is fatal rather than a warning
      */
-    public function record(string $vendorKey, string $declaration, int $id, string $appKey): void
+    public function record(string $vendorKey, string $declaration, int $id, string $appType): void
     {
+        // A legacy-spelled entry reads back identical, so the up-to-date check has to
+        // look at the raw shape — otherwise the file would keep `app_key` forever.
+        $legacy = \array_key_exists(self::LEGACY_TYPE_KEY, Json::mapOf($this->apps($vendorKey)[$declaration] ?? null));
+
         $existing = $this->lookup($vendorKey, $declaration);
-        if (null !== $existing && $existing['id'] === $id && $existing['app_key'] === $appKey) {
+        if (!$legacy && null !== $existing && $existing['id'] === $id && $existing['app_type'] === $appType) {
             return;
         }
 
-        $this->mutate($vendorKey, static function (array $apps) use ($declaration, $id, $appKey): array {
-            $apps[$declaration] = ['id' => $id, 'app_key' => $appKey];
+        $this->mutate($vendorKey, static function (array $apps) use ($declaration, $id, $appType): array {
+            $apps[$declaration] = ['id' => $id, 'app_type' => $appType];
 
             return $apps;
         });

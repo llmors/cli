@@ -25,7 +25,7 @@ final class ResolvedApp
     /** Bound through an explicit `[id]` in the manifest. */
     public const ORIGIN_PIN = 'pin';
 
-    /** Matched an existing remote app by name + app_key. */
+    /** Matched an existing remote app by name + app type. */
     public const ORIGIN_ADOPTED = 'adopted';
 
     /** No remote counterpart — will be created. */

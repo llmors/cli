@@ -14,7 +14,7 @@ use Llmor\Cli\Manifest\AppDefinition;
  * 1. an explicit `[id]` in the manifest — always wins, and is the escape hatch for
  *    everything below;
  * 2. an `llmor.lock` entry for this vendor;
- * 3. adoption: exactly one existing app with the same `[name]` and `[app_key]`. This
+ * 3. adoption: exactly one existing app with the same `[name]` and `[app_type]`. This
  *    is what stops a first sync from duplicating an app someone built in the console;
  * 4. otherwise it will be created.
  *
@@ -51,8 +51,8 @@ final class AppResolver
 
         $locked = $this->lock->lookup($this->vendorKey, $app->declaration);
         if (null !== $locked) {
-            if ($locked['app_key'] !== $app->appKey) {
-                throw new SyncException(\sprintf('App "%s" is recorded in %s as %s but the manifest declares %s. An app\'s type cannot be changed after it is created — use a new declaration name, or pin the right app with [id].', $app->declaration, AppLockFile::FILE_NAME, $locked['app_key'], $app->appKey));
+            if ($locked['app_type'] !== $app->appType) {
+                throw new SyncException(\sprintf('App "%s" is recorded in %s as %s but the manifest declares %s. An app\'s type cannot be changed after it is created — use a new declaration name, or pin the right app with [id].', $app->declaration, AppLockFile::FILE_NAME, $locked['app_type'], $app->appType));
             }
 
             if (null === $this->index->byId($locked['id'])) {
@@ -90,7 +90,7 @@ final class AppResolver
         }
 
         $candidates = [];
-        foreach ($this->index->matching($app->name, $app->appKey) as $record) {
+        foreach ($this->index->matching($app->name, $app->appType) as $record) {
             $id = Json::idOf($record['id'] ?? null);
             if (null !== $id && !isset($this->claimed[$id])) {
                 $candidates[$id] = $record;
@@ -107,7 +107,7 @@ final class AppResolver
 
         $id = (int) \array_key_first($candidates);
         // Say so out loud: this is the moment the CLI takes over a record a human made.
-        $warnings[] = \sprintf('Adopted existing app #%d (matched by [name] and [app_key]).', $id);
+        $warnings[] = \sprintf('Adopted existing app #%d (matched by [name] and [app_type]).', $id);
 
         return $this->bind($app, $id, ResolvedApp::ORIGIN_ADOPTED, $warnings, $candidates[$id]);
     }
@@ -130,9 +130,9 @@ final class AppResolver
             return new ResolvedApp($app, null, ResolvedApp::ORIGIN_NEW, $warnings);
         }
 
-        $remoteKey = Json::stringOf($record['app_key'] ?? null);
-        if ('' !== $remoteKey && $remoteKey !== $app->appKey) {
-            throw new SyncException(\sprintf('App "%s" resolves to #%d, which is a %s app, but the manifest declares %s. An app\'s type cannot be changed after it is created.', $app->declaration, $id, $remoteKey, $app->appKey));
+        $remoteType = Json::stringOf($record['app_key'] ?? null);
+        if ('' !== $remoteType && $remoteType !== $app->appType) {
+            throw new SyncException(\sprintf('App "%s" resolves to #%d, which is a %s app, but the manifest declares %s. An app\'s type cannot be changed after it is created.', $app->declaration, $id, $remoteType, $app->appType));
         }
 
         $owner = $this->claimed[$id] ?? null;

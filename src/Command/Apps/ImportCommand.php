@@ -55,7 +55,7 @@ final class ImportCommand extends AbstractManifestCommand
         $this
             ->addArgument('id', InputArgument::OPTIONAL, 'The app id, as shown in the console. Omit to pick from a list.')
             ->addOption('as', null, InputOption::VALUE_REQUIRED, 'Declaration name to use (default: derived from the app name).')
-            ->addOption('inline', null, InputOption::VALUE_NONE, 'Keep long parameters inline instead of extracting them to ./prompts.')
+            ->addOption('inline', null, InputOption::VALUE_NONE, 'Keep long parameters inline instead of extracting them to files beside the manifest.')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Import even when the app is already declared. Requires --as.')
             ->addOption('dry-run', null, InputOption::VALUE_NONE, 'Show the declaration without writing anything.')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output the result as JSON.');
@@ -128,7 +128,9 @@ final class ImportCommand extends AbstractManifestCommand
         return new AppImporter(
             $reader,
             new RemoteAppMapper($this->declaredIds($manifest, $lock), $models),
-            new AppDeclarationWriter($input->getOption('inline') ? null : new ValueExtractor()),
+            // Long values go to the manifest's own [prompt_dir] — `prompts/` unless its
+            // `: Config` block says otherwise.
+            new AppDeclarationWriter($input->getOption('inline') ? null : new ValueExtractor($manifest->config->promptDir)),
             ManifestAppender::at($manifest->path),
             $lock,
             $this->vendorKey(),
@@ -298,7 +300,7 @@ final class ImportCommand extends AbstractManifestCommand
     /**
      * Warn when `sync` would have adopted this app anyway.
      *
-     * Two declarations with the same `[name]` and `[app_key]` both try to adopt the same
+     * Two declarations with the same `[name]` and `[app_type]` both try to adopt the same
      * record and {@see \Llmor\Cli\Sync\AppResolver} then refuses both, so it is worth
      * saying before the declaration exists rather than after.
      *
@@ -311,8 +313,8 @@ final class ImportCommand extends AbstractManifestCommand
         }
 
         foreach ($manifest->apps as $app) {
-            if (RemoteAppIndex::describes($record, $app->name, $app->appKey)) {
-                $io->warning(\sprintf('The manifest already declares "%s" with the same [name] and [app_key]. `llmor sync` would adopt app #%d for it, so you may not need to import at all.', $app->declaration, $appId));
+            if (RemoteAppIndex::describes($record, $app->name, $app->appType)) {
+                $io->warning(\sprintf('The manifest already declares "%s" with the same [name] and [app_type]. `llmor sync` would adopt app #%d for it, so you may not need to import at all.', $app->declaration, $appId));
 
                 return;
             }

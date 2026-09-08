@@ -29,7 +29,7 @@ final class ValidationErrorFormatter
         'content' => 'auxiliary file content',
         'content_type' => 'auxiliary file content type',
         // apps
-        'app_key' => '[app_key]',
+        'app_key' => '[app_type]',
         'parameters' => '[parameters]',
         'completion_vendor_model_id' => '[model]',
         'functions' => '[functions]',

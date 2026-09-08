@@ -16,7 +16,7 @@ final class ManifestAppenderTest extends TestCase
 {
     use TempProject;
 
-    private const DECLARATION = "support_bot: App {\n  [app_key] = 'llmor/generic'\n}";
+    private const DECLARATION = "support_bot: App {\n  [app_type] = 'llmor/generic'\n}";
 
     protected function setUp(): void
     {

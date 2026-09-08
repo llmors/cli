@@ -37,13 +37,16 @@ final class AppDefinitionBuilder
      *
      * @var list<string>
      */
-    private const KNOWN_APP_KEYS = [
+    private const KNOWN_APP_TYPES = [
         'llmor/generic',
         'llmor/generic_embedded',
         'llmor/oneshot',
         'llmor/autopilot',
         'llmor/silicon',
     ];
+
+    /** The pre-rename spelling of `[app_type]`, still accepted so old manifests parse. */
+    private const LEGACY_TYPE_KEY = 'app_key';
 
     /**
      * @throws ManifestException
@@ -78,9 +81,14 @@ final class AppDefinitionBuilder
             }
         }
 
-        $appKey = $ctx->require($meta, 'app_key');
-        if (!\in_array($appKey, self::KNOWN_APP_KEYS, true) && !\str_contains($appKey, '/')) {
-            throw $ctx->invalid(\sprintf('[app_key] "%s" is not an app type — expected one of %s', $appKey, \implode(', ', self::KNOWN_APP_KEYS)));
+        $legacyTypeKey = !isset($meta['app_type']) && isset($meta[self::LEGACY_TYPE_KEY]);
+        if (isset($meta['app_type'], $meta[self::LEGACY_TYPE_KEY])) {
+            throw $ctx->invalid('[app_type] and the deprecated [app_key] both name the app type — declare only [app_type]');
+        }
+
+        $appType = $ctx->require($meta, $legacyTypeKey ? self::LEGACY_TYPE_KEY : 'app_type');
+        if (!\in_array($appType, self::KNOWN_APP_TYPES, true) && !\str_contains($appType, '/')) {
+            throw $ctx->invalid(\sprintf('[app_type] "%s" is not an app type — expected one of %s', $appType, \implode(', ', self::KNOWN_APP_TYPES)));
         }
 
         $name = $this->optional($meta, 'name');
@@ -95,7 +103,7 @@ final class AppDefinitionBuilder
 
         return new AppDefinition(
             declaration: $ctx->key,
-            appKey: $appKey,
+            appType: $appType,
             name: $name,
             description: $description,
             model: $this->optional($meta, 'model'),
@@ -103,6 +111,7 @@ final class AppDefinitionBuilder
             parameters: $this->buildParameters($blocks['parameters'] ?? null, $ctx),
             functions: $this->buildFunctions($blocks['functions'] ?? null, $ctx),
             subagents: $this->buildSubagents($blocks['subagents'] ?? null, $ctx),
+            legacyTypeKey: $legacyTypeKey,
         );
     }
 

@@ -14,7 +14,7 @@ use stdClass;
  * Reconciles one resolved app with its remote record.
  *
  * Two things about the API shape this: `PUT` is a *partial* update (only the keys we
- * send are touched), and `app_key` is create-only. So the manifest owns exactly the
+ * send are touched), and the app type is create-only. So the manifest owns exactly the
  * fields it declares and nothing else — `embed_config`, `allowed_origins` and the
  * rest stay whatever the console set them to, and are never echoed back.
  *
@@ -58,12 +58,18 @@ final class AppSynchronizer
     public function sync(ResolvedApp $resolved, bool $dryRun = false): AppSyncResult
     {
         $app = $resolved->definition;
-        $result = new AppSyncResult($app->declaration, $app->appKey);
+        $result = new AppSyncResult($app->declaration, $app->appType);
         $result->origin = $resolved->origin;
         $result->parameterCount = $app->parameterCount();
         // How this app was identified is part of what happened to it, so resolution's
         // notes are reported against the same subject as everything else.
         $result->warnings = $resolved->warnings;
+
+        // The manifest parse has no warnings channel of its own, so the deprecation
+        // rides along here — the one place a declaration is already being reported on.
+        if ($app->legacyTypeKey) {
+            $result->warnings[] = '[app_key] is deprecated — rename it to [app_type].';
+        }
 
         $id = $resolved->id;
         if (null === $id) {
@@ -76,7 +82,7 @@ final class AppSynchronizer
         // that isn't recorded stays bound only while `[name]` keeps matching, which is
         // exactly the fragility the lock file exists to remove. A dry run's lock is
         // read-only, so there is nothing to guard here.
-        $this->lock->record($this->vendorKey, $app->declaration, $id, $app->appKey);
+        $this->lock->record($this->vendorKey, $app->declaration, $id, $app->appType);
 
         return $this->update($resolved, $id, $result, $dryRun);
     }
@@ -91,7 +97,8 @@ final class AppSynchronizer
 
         // `parameters` is required on create, and `{}` is enough — the server fills in
         // the app type's defaults from there.
-        $payload = ['app_key' => $app->appKey, 'parameters' => $app->parameters];
+        // `app_key` is the API's spelling of the manifest's `[app_type]`.
+        $payload = ['app_key' => $app->appType, 'parameters' => $app->parameters];
 
         if (null !== $app->name) {
             $payload['name'] = $app->name;
@@ -125,7 +132,7 @@ final class AppSynchronizer
 
         // Record before anything else can fail: an app that exists remotely but not in
         // the lock file is orphaned, and deleting an app requires a super-admin.
-        $this->lock->record($this->vendorKey, $app->declaration, $id, $app->appKey);
+        $this->lock->record($this->vendorKey, $app->declaration, $id, $app->appType);
 
         return $result;
     }

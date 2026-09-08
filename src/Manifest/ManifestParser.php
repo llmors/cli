@@ -11,6 +11,7 @@ use ClanCats\SchemaScript\Node\Type\GenericTypeNode;
 use ClanCats\SchemaScript\Node\Type\SimpleTypeNode;
 use ClanCats\SchemaScript\Parser\ScopeParser;
 use Llmor\Cli\Manifest\Builder\AppDefinitionBuilder;
+use Llmor\Cli\Manifest\Builder\ConfigDefinitionBuilder;
 use Llmor\Cli\Manifest\Builder\DeclarationContext;
 use Llmor\Cli\Manifest\Builder\FunctionDefinitionBuilder;
 use Throwable;
@@ -19,10 +20,10 @@ use Throwable;
  * Parses an `llmor.scsc` manifest into typed declarations.
  *
  * Parsing stops at the AST level (Lexer → ScopeParser): the `name: Function` /
- * `name: App` parent-type tag — our discriminator — is resolved away and discarded by the
- * SchemaScript evaluator, but it is preserved on the raw {@see ModelDefinitionNode}.
- * Staying at the AST level also means a manifest never has to declare the
- * `Function`/`App` types or import a stdlib.
+ * `name: App` / `name: Config` parent-type tag — our discriminator — is resolved away and
+ * discarded by the SchemaScript evaluator, but it is preserved on the raw
+ * {@see ModelDefinitionNode}. Staying at the AST level also means a manifest never has to
+ * declare those types or import a stdlib.
  *
  * This class only lexes, discriminates by parent type and dispatches; each kind of
  * declaration is built by its own builder under {@see Builder}.
@@ -34,6 +35,9 @@ final class ManifestParser
 
     /** The parent type that marks a declaration as a syncable app. */
     public const APP_TYPE = 'App';
+
+    /** The parent type that marks a declaration as this project's own settings. */
+    public const CONFIG_TYPE = 'Config';
 
     /**
      * @throws ManifestException
@@ -59,15 +63,18 @@ final class ManifestParser
 
         $functionBuilder = new FunctionDefinitionBuilder();
         $appBuilder = new AppDefinitionBuilder();
+        $configBuilder = new ConfigDefinitionBuilder();
 
         $functions = [];
         $apps = [];
+        $config = null;
         $seen = [];
 
         foreach ($scope->getModels() as $model) {
             $kind = match (true) {
                 self::hasParentType($model, self::FUNCTION_TYPE) => 'function',
                 self::hasParentType($model, self::APP_TYPE) => 'app',
+                self::hasParentType($model, self::CONFIG_TYPE) => 'config',
                 default => null,
             };
 
@@ -86,12 +93,21 @@ final class ManifestParser
 
             if ('function' === $kind) {
                 $functions[] = $functionBuilder->build($model, $ctx);
-            } else {
+            } elseif ('app' === $kind) {
                 $apps[] = $appBuilder->build($model, $ctx);
+            } else {
+                // A project has one set of settings, and two blocks would leave which of
+                // them wins to source order — so a second one is a mistake, not a merge.
+                // They carry different names, so the check above never sees them.
+                if (null !== $config) {
+                    throw new ManifestException(\sprintf('Manifest "%s" declares more than one ": %s" block — a project has one set of settings.', $path, self::CONFIG_TYPE));
+                }
+
+                $config = $configBuilder->build($model, $ctx);
             }
         }
 
-        $manifest = new Manifest($path, $functions, $apps);
+        $manifest = new Manifest($path, $functions, $apps, $config);
         $this->linkDeclarations($manifest, $seen);
 
         return $manifest;
@@ -115,11 +131,12 @@ final class ManifestParser
 
             foreach ($app->functions ?? [] as $link) {
                 // A key this manifest doesn't declare is legitimate — the function may
-                // exist only remotely — but a key that names an *app* never is, and
-                // finding out at sync time costs a vendor lookup and a function search
-                // to arrive at advice ("sync without a filter first") that cannot help.
-                if ('app' === ($kinds[$link->name] ?? null)) {
-                    throw $ctx->invalid(\sprintf('[functions] → "%s" references an app, not a function', $link->name));
+                // exist only remotely — but a key naming another *kind* of declaration
+                // never is, and finding out at sync time costs a vendor lookup and a
+                // function search to arrive at advice that cannot help.
+                $kind = $kinds[$link->name] ?? 'function';
+                if ('function' !== $kind) {
+                    throw $ctx->invalid(\sprintf('[functions] → "%s" references %s %s, not a function', $link->name, 'app' === $kind ? 'an' : 'a', $kind));
                 }
             }
 
@@ -142,7 +159,7 @@ final class ManifestParser
                 }
 
                 if ('app' !== $kind) {
-                    throw $ctx->invalid(\sprintf('%s references "%s", which is a function, not an app', $where, $subagent->target));
+                    throw $ctx->invalid(\sprintf('%s references "%s", which is a %s, not an app', $where, $subagent->target, $kind));
                 }
             }
         }

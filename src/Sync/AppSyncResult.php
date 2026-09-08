@@ -43,7 +43,7 @@ final class AppSyncResult implements SyncOutcome
 
     public function __construct(
         public readonly string $declaration,
-        public readonly string $appKey,
+        public readonly string $appType,
     ) {
     }
 
@@ -67,7 +67,7 @@ final class AppSyncResult implements SyncOutcome
         $parts = [null === $this->appId ? '(new)' : '#'.$this->appId];
 
         if (self::CREATED === $this->appAction) {
-            $parts[] = $this->appKey;
+            $parts[] = $this->appType;
             if ($this->parameterCount > 0) {
                 $parts[] = \sprintf('params %d', $this->parameterCount);
             }
@@ -122,7 +122,7 @@ final class AppSyncResult implements SyncOutcome
         return [
             'kind' => $this->kind(),
             'app' => $this->declaration,
-            'app_key' => $this->appKey,
+            'app_type' => $this->appType,
             'action' => $this->appAction,
             'app_id' => $this->appId,
             'origin' => $this->origin,
