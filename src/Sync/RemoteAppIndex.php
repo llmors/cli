@@ -38,6 +38,16 @@ final class RemoteAppIndex
     }
 
     /**
+     * Every indexed app, in id order.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function all(): array
+    {
+        return \array_values($this->byId);
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function byId(int $id): ?array
@@ -59,12 +69,28 @@ final class RemoteAppIndex
     {
         $matches = [];
         foreach ($this->byId as $record) {
-            if (Json::stringOf($record['name'] ?? null) === $name
-                && Json::stringOf($record['app_key'] ?? null) === $appKey) {
+            if (self::describes($record, $name, $appKey)) {
                 $matches[] = $record;
             }
         }
 
         return $matches;
+    }
+
+    /**
+     * Would a declaration with this `[name]` and `[app_key]` adopt this remote record?
+     *
+     * The single expression of the adoption rule. `apps:import` warns by *predicting*
+     * what `sync` would adopt, and a prediction that restates the rule in its own words
+     * silently stops matching the moment a criterion is added to one of them. A
+     * declaration with no `[name]` has nothing to match on and never adopts.
+     *
+     * @param array<string, mixed> $record
+     */
+    public static function describes(array $record, ?string $name, string $appKey): bool
+    {
+        return null !== $name
+            && Json::stringOf($record['name'] ?? null) === $name
+            && Json::stringOf($record['app_key'] ?? null) === $appKey;
     }
 }

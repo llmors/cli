@@ -93,11 +93,69 @@ final class LlmorClient
     }
 
     /**
+     * Start a request without reading its response, for callers that need to do
+     * something else while it runs — a chat turn pumps the conversation relay while its
+     * POST is still open. See {@see PendingRequest} for why this path does not retry on
+     * a 401 the way {@see request()} does.
+     *
+     * @param array<string, scalar|null> $query
+     * @param array<string, mixed>|null  $json
+     */
+    public function requestAsync(string $method, string $path, array $query = [], ?array $json = null): PendingRequest
+    {
+        $method = \strtoupper($method);
+        $requestUri = $this->buildRequestUri($path, $query);
+        $session = $this->sessions->current();
+
+        try {
+            $response = $this->http->request(
+                $method,
+                $this->host.$requestUri,
+                $this->options($method, $requestUri, $session->secret, $session->token, $json),
+            );
+        } catch (HttpExceptionInterface $e) {
+            throw new ApiException('Unable to reach the llmor API: '.$e->getMessage(), 0, [], $e);
+        }
+
+        return new PendingRequest(
+            $this->http,
+            $response,
+            fn (string $content, int $status): array => $this->decode($content, $status),
+            fn (int $status, array $body): ApiException => $this->mapError($status, $body),
+        );
+    }
+
+    /**
      * @param array<string, mixed>|null $json
      *
      * @return array{0: int, 1: array<string, mixed>}
      */
     private function dispatch(string $method, string $requestUri, string $secret, string $token, ?array $json): array
+    {
+        try {
+            $response = $this->http->request(
+                $method,
+                $this->host.$requestUri,
+                $this->options($method, $requestUri, $secret, $token, $json),
+            );
+            $status = $response->getStatusCode();
+            $content = $response->getContent(false);
+        } catch (HttpExceptionInterface $e) {
+            throw new ApiException('Unable to reach the llmor API: '.$e->getMessage(), 0, [], $e);
+        }
+
+        return [$status, $this->decode($content, $status)];
+    }
+
+    /**
+     * The signed request options — shared by the buffered and async paths so both put
+     * exactly the same bytes on the wire.
+     *
+     * @param array<string, mixed>|null $json
+     *
+     * @return array<string, mixed>
+     */
+    private function options(string $method, string $requestUri, string $secret, string $token, ?array $json): array
     {
         $headers = [
             'Accept' => 'application/json',
@@ -121,15 +179,7 @@ final class LlmorClient
             $options['json'] = $json;
         }
 
-        try {
-            $response = $this->http->request($method, $this->host.$requestUri, $options);
-            $status = $response->getStatusCode();
-            $content = $response->getContent(false);
-        } catch (HttpExceptionInterface $e) {
-            throw new ApiException('Unable to reach the llmor API: '.$e->getMessage(), 0, [], $e);
-        }
-
-        return [$status, $this->decode($content, $status)];
+        return $options;
     }
 
     /**

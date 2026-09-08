@@ -9,6 +9,7 @@ use ClanCats\SchemaScript\Node\MetadataBlockNode;
 use ClanCats\SchemaScript\Node\MetadataEntryNode;
 use ClanCats\SchemaScript\Node\ModelDefinitionNode;
 use Llmor\Cli\Manifest\AppDefinition;
+use Llmor\Cli\Manifest\AppLimits;
 use Llmor\Cli\Manifest\FileValueLoader;
 use Llmor\Cli\Manifest\FunctionLink;
 use Llmor\Cli\Manifest\ManifestException;
@@ -28,17 +29,6 @@ final class AppDefinitionBuilder
 
     /** A bare positive integer — an `[id]` pin, or a `[app]` that addresses an app directly. */
     private const POSITIVE_INT_PATTERN = '/^[1-9][0-9]*$/';
-
-    /** Mirrors the server-side sub-agent field limits. */
-    private const ALIAS_PATTERN = '/^[a-z][a-z0-9_]{1,31}$/';
-    private const TOOL_NAME_PATTERN = '/^[a-zA-Z0-9_-]{1,64}$/';
-    private const MAX_SUBAGENT_DESCRIPTION = 512;
-    private const MAX_TOOL_DESCRIPTION = 1024;
-
-    /** Mirrors the server-side limits so a typo fails locally instead of as a 400. */
-    private const MAX_NAME_LENGTH = 144;
-    private const MIN_NAME_LENGTH = 2;
-    private const MAX_DESCRIPTION_LENGTH = 4096;
 
     /**
      * The app types the server ships today. Used only to phrase a better local error;
@@ -94,13 +84,13 @@ final class AppDefinitionBuilder
         }
 
         $name = $this->optional($meta, 'name');
-        if (null !== $name && (\mb_strlen($name) < self::MIN_NAME_LENGTH || \mb_strlen($name) > self::MAX_NAME_LENGTH)) {
-            throw $ctx->invalid(\sprintf('[name] must be between %d and %d characters', self::MIN_NAME_LENGTH, self::MAX_NAME_LENGTH));
+        if (null !== $name && (\mb_strlen($name) < AppLimits::MIN_NAME_LENGTH || \mb_strlen($name) > AppLimits::MAX_NAME_LENGTH)) {
+            throw $ctx->invalid(\sprintf('[name] must be between %d and %d characters', AppLimits::MIN_NAME_LENGTH, AppLimits::MAX_NAME_LENGTH));
         }
 
         $description = $this->optional($meta, 'description');
-        if (null !== $description && \mb_strlen($description) > self::MAX_DESCRIPTION_LENGTH) {
-            throw $ctx->invalid(\sprintf('[description] must be at most %d characters', self::MAX_DESCRIPTION_LENGTH));
+        if (null !== $description && \mb_strlen($description) > AppLimits::MAX_DESCRIPTION_LENGTH) {
+            throw $ctx->invalid(\sprintf('[description] must be at most %d characters', AppLimits::MAX_DESCRIPTION_LENGTH));
         }
 
         return new AppDefinition(
@@ -237,7 +227,7 @@ final class AppDefinitionBuilder
     {
         $where = \sprintf('[subagents] → %s', $alias);
 
-        if (1 !== \preg_match(self::ALIAS_PATTERN, $alias)) {
+        if (1 !== \preg_match(AppLimits::ALIAS_PATTERN, $alias)) {
             throw $ctx->invalid(\sprintf('%s: an alias must be lowercase, start with a letter and be 2 to 32 characters', $where));
         }
 
@@ -262,20 +252,20 @@ final class AppDefinitionBuilder
         $targetId = 1 === \preg_match(self::POSITIVE_INT_PATTERN, $target) ? (int) $target : null;
 
         $description = $meta['description'] ?? '';
-        if (\mb_strlen($description) > self::MAX_SUBAGENT_DESCRIPTION) {
-            throw $ctx->invalid(\sprintf('%s: [description] must be at most %d characters', $where, self::MAX_SUBAGENT_DESCRIPTION));
+        if (\mb_strlen($description) > AppLimits::MAX_SUBAGENT_DESCRIPTION) {
+            throw $ctx->invalid(\sprintf('%s: [description] must be at most %d characters', $where, AppLimits::MAX_SUBAGENT_DESCRIPTION));
         }
 
         $toolName = $meta['tool_name'] ?? '';
-        if ('' !== $toolName && 1 !== \preg_match(self::TOOL_NAME_PATTERN, $toolName)) {
+        if ('' !== $toolName && 1 !== \preg_match(AppLimits::TOOL_NAME_PATTERN, $toolName)) {
             throw $ctx->invalid(\sprintf('%s: [tool_name] may use letters, digits, "_" and "-", up to 64 characters', $where));
         }
 
         $toolDescription = $meta['tool_description'] ?? '';
         $inputDescription = $meta['input_description'] ?? '';
         foreach (['tool_description' => $toolDescription, 'input_description' => $inputDescription] as $field => $value) {
-            if (\mb_strlen($value) > self::MAX_TOOL_DESCRIPTION) {
-                throw $ctx->invalid(\sprintf('%s: [%s] must be at most %d characters', $where, $field, self::MAX_TOOL_DESCRIPTION));
+            if (\mb_strlen($value) > AppLimits::MAX_TOOL_DESCRIPTION) {
+                throw $ctx->invalid(\sprintf('%s: [%s] must be at most %d characters', $where, $field, AppLimits::MAX_TOOL_DESCRIPTION));
             }
         }
 

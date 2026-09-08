@@ -19,7 +19,8 @@ use Llmor\Cli\Client\LlmorClient;
  */
 final class ModelResolver
 {
-    private const TYPE = 'chat_completion';
+    /** The model type an app's `[model]` is resolved against. */
+    public const TYPE = 'chat_completion';
 
     /** @var list<array<string, mixed>>|null */
     private ?array $models = null;
@@ -66,15 +67,55 @@ final class ModelResolver
     }
 
     /**
+     * The name of a model by id, or null when this vendor has no such model.
+     *
+     * The reverse of {@see resolveId()}, for reading a record back out: an app carries
+     * `completion_vendor_model_id`, but a manifest wants the name.
+     */
+    public function nameOf(int $id): ?string
+    {
+        foreach ($this->models() as $model) {
+            if (Json::idOf($model['id'] ?? null) === $id) {
+                $name = Json::stringOf($model['name'] ?? null);
+
+                return '' === $name ? null : $name;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Read the vendor's models straight from the endpoint.
+     *
+     * The one place that knows where models live and how they are paged, so a command
+     * that wants to *show* the catalogue reads the same list a manifest resolves
+     * against — pass a null $type for every type.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function list(?string $type = self::TYPE, ?string $search = null): array
+    {
+        return PagedList::fetchAll(
+            $this->client,
+            \sprintf('/v1/vendors/%d/models', $this->vendorId),
+            [
+                'type' => $type,
+                'search' => $search,
+                // The endpoint applies no ORDER BY of its own, so without this the
+                // order — and with it the paging — is whatever the database felt like.
+                'order' => 'name',
+                'order_dir' => 'asc',
+            ],
+        );
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     private function models(): array
     {
-        return $this->models ??= PagedList::fetchAll(
-            $this->client,
-            \sprintf('/v1/vendors/%d/models', $this->vendorId),
-            ['type' => self::TYPE],
-        );
+        return $this->models ??= $this->list();
     }
 
     private function available(): string

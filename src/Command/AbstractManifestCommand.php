@@ -21,21 +21,27 @@ use Llmor\Cli\Sync\SyncError;
 use Llmor\Cli\Sync\SyncOutcome;
 use Llmor\Cli\Sync\SyncReport;
 use Llmor\Cli\Sync\ValidationErrorFormatter;
-use Llmor\Cli\Sync\VendorResolver;
 
 /**
  * Shared wiring for the manifest-driven commands (`sync`, `run`): manifest discovery
- * + parsing, vendor-id resolution, and synchronizer construction. The working
- * directory is injected so tests can point at a temp project.
+ * + parsing and synchronizer construction, on top of the vendor resolution every
+ * vendor-scoped command shares. The working directory is injected so tests can point
+ * at a temp project.
  */
-abstract class AbstractManifestCommand extends AbstractCommand
+abstract class AbstractManifestCommand extends AbstractVendorCommand
 {
     public function __construct(
-        protected readonly LlmorClient $client,
-        protected readonly ?string $vendorKey,
+        LlmorClient $client,
+        ?string $vendorKey,
         protected readonly string $workingDir,
     ) {
-        parent::__construct();
+        parent::__construct($client, $vendorKey);
+    }
+
+    /** The nearest manifest, or null when this project has none yet. */
+    protected function locateManifestPath(): ?string
+    {
+        return (new ManifestLocator($this->workingDir))->locate();
     }
 
     /**
@@ -43,7 +49,7 @@ abstract class AbstractManifestCommand extends AbstractCommand
      */
     protected function loadManifest(): Manifest
     {
-        $path = (new ManifestLocator($this->workingDir))->locate();
+        $path = $this->locateManifestPath();
         if (null === $path) {
             throw new ManifestException(\sprintf('No %s manifest found in %s or any parent directory.', ManifestLocator::FILE_NAME, $this->workingDir));
         }
@@ -51,9 +57,23 @@ abstract class AbstractManifestCommand extends AbstractCommand
         return (new ManifestParser())->parseFile($path);
     }
 
-    protected function resolveVendorId(): int
+    /**
+     * The manifest, or an empty one at the path a new manifest would take — for the
+     * commands that may legitimately run before a project has one.
+     *
+     * A manifest that exists but is *broken* still throws, deliberately: a command that
+     * writes into a file whose declarations it cannot read has no way to tell whether it
+     * is about to create a duplicate.
+     *
+     * @throws ManifestException when a manifest exists but cannot be parsed
+     */
+    protected function loadManifestOrEmpty(): Manifest
     {
-        return (new VendorResolver($this->client))->resolveId($this->vendorKey);
+        $path = $this->locateManifestPath();
+
+        return null === $path
+            ? new Manifest($this->workingDir.\DIRECTORY_SEPARATOR.ManifestLocator::FILE_NAME, [])
+            : (new ManifestParser())->parseFile($path);
     }
 
     protected function synchronizer(int $vendorId): FunctionSynchronizer
@@ -74,7 +94,7 @@ abstract class AbstractManifestCommand extends AbstractCommand
 
     protected function appResolver(AppLockFile $lock, int $vendorId): AppResolver
     {
-        return new AppResolver($this->vendorKey ?? '', $lock, RemoteAppIndex::fetch($this->client, $vendorId));
+        return new AppResolver($this->vendorKey(), $lock, RemoteAppIndex::fetch($this->client, $vendorId));
     }
 
     protected function appSynchronizer(AppLockFile $lock, int $vendorId, FunctionIdResolver $functions): AppSynchronizer
@@ -82,7 +102,7 @@ abstract class AbstractManifestCommand extends AbstractCommand
         return new AppSynchronizer(
             $this->client,
             $vendorId,
-            $this->vendorKey ?? '',
+            $this->vendorKey(),
             $lock,
             new ModelResolver($this->client, $vendorId),
             $functions,

@@ -12,11 +12,11 @@ use Symfony\Component\HttpClient\Response\MockResponse;
  *
  * The auth handshake (`/v1/auth/session` + `/v1/auth/signin`) is answered
  * automatically; register handlers for everything else with {@see on()}. Every
- * request is recorded (method, path, decoded JSON body) for assertions.
+ * request is recorded (method, path, query string, decoded JSON body) for assertions.
  */
 final class FakeLlmorApi
 {
-    /** @var list<array{method: string, path: string, body: array<string, mixed>}> */
+    /** @var list<array{method: string, path: string, query: string, body: array<string, mixed>}> */
     public array $calls = [];
 
     /** @var list<array{method: string, pattern: string, handler: callable}> */
@@ -37,7 +37,12 @@ final class FakeLlmorApi
         $factory = function (string $method, string $url, array $options): MockResponse {
             $path = (string) \parse_url($url, \PHP_URL_PATH);
             $body = $this->decodeBody($options);
-            $this->calls[] = ['method' => $method, 'path' => $path, 'body' => $body];
+            $this->calls[] = [
+                'method' => $method,
+                'path' => $path,
+                'query' => (string) \parse_url($url, \PHP_URL_QUERY),
+                'body' => $body,
+            ];
 
             if (\str_ends_with($path, '/v1/auth/session')) {
                 return $this->json(['token' => 'tok', 'secret' => 'sec']);
@@ -63,7 +68,7 @@ final class FakeLlmorApi
     /**
      * The first recorded call matching a method and a path pattern, or null.
      *
-     * @return array{method: string, path: string, body: array<string, mixed>}|null
+     * @return array{method: string, path: string, query: string, body: array<string, mixed>}|null
      */
     public function findCall(string $method, string $pattern): ?array
     {

@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Llmor\Cli\Console;
 
 use Symfony\Component\Console\Formatter\OutputFormatterStyle;
+use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Helper\TableStyle;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -26,11 +28,14 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 final class OutputStyle extends SymfonyStyle
 {
     private readonly OutputInterface $output;
+    private readonly InputInterface $input;
+    private ?QuestionHelper $questionHelper = null;
 
     public function __construct(InputInterface $input, OutputInterface $output)
     {
         parent::__construct($input, $output);
         $this->output = $output;
+        $this->input = $input;
 
         $formatter = $output->getFormatter();
         $formatter->setStyle('ok', new OutputFormatterStyle('green'));
@@ -181,12 +186,52 @@ final class OutputStyle extends SymfonyStyle
     }
 
     /**
+     * Ask inline, in the house style.
+     *
+     * SymfonyStyle's own renderer prints the question on its own line, appends a colon
+     * and drops the cursor to a ` > ` gutter — three lines for one prompt. The plain
+     * {@see QuestionHelper} writes the prompt verbatim and leaves the cursor on it,
+     * which is what a chat prompt (`you › `) needs.
+     */
+    public function askQuestion(Question $question): mixed
+    {
+        $this->questionHelper ??= new QuestionHelper();
+
+        return $this->questionHelper->ask($this->input, $this, $question);
+    }
+
+    /**
      * A dim trailing line for counts, pagination and "how to" hints.
      */
     public function meta(string $message): void
     {
         $this->newLine();
         $this->writeln(\sprintf('<muted>%s</muted>', $message));
+    }
+
+    /**
+     * Text collapsed onto one line, clipped to $max characters with an ellipsis.
+     *
+     * The single spelling of "squeeze this into a cell": a table column, a tool-call
+     * gutter, the stream-vs-result comparison. Pass no $max to normalise without
+     * clipping.
+     */
+    public static function oneLine(string $text, ?int $max = null): string
+    {
+        // collapsing whitespace never lengthens a string, so nothing beyond a generous
+        // multiple of the budget can reach the output — cut first, and a megabyte of
+        // tool result costs the same as a sentence
+        if (null !== $max && \strlen($text) > $max * 4) {
+            $text = \mb_strcut($text, 0, $max * 4);
+        }
+
+        $text = \trim((string) \preg_replace('/\s+/', ' ', $text));
+
+        if (null === $max || \mb_strlen($text) <= $max) {
+            return $text;
+        }
+
+        return \mb_substr($text, 0, $max - 1).'…';
     }
 
     /**
