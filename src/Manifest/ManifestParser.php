@@ -5,42 +5,40 @@ declare(strict_types=1);
 namespace Llmor\Cli\Manifest;
 
 use ClanCats\SchemaScript\Lexer;
-use ClanCats\SchemaScript\Node\MetadataEntryNode;
-use ClanCats\SchemaScript\Node\MetadataListNode;
 use ClanCats\SchemaScript\Node\ModelDefinitionNode;
 use ClanCats\SchemaScript\Node\ScopeNode;
 use ClanCats\SchemaScript\Node\Type\GenericTypeNode;
 use ClanCats\SchemaScript\Node\Type\SimpleTypeNode;
 use ClanCats\SchemaScript\Parser\ScopeParser;
+use Llmor\Cli\Manifest\Builder\AppDefinitionBuilder;
+use Llmor\Cli\Manifest\Builder\DeclarationContext;
+use Llmor\Cli\Manifest\Builder\FunctionDefinitionBuilder;
 use Throwable;
 
 /**
- * Parses an `llmor.scsc` manifest into typed {@see FunctionDefinition}s.
+ * Parses an `llmor.scsc` manifest into typed declarations.
  *
- * Parsing stops at the AST level (Lexer → ScopeParser): the `name: Function`
- * parent-type tag — our discriminator — is resolved away and discarded by the
+ * Parsing stops at the AST level (Lexer → ScopeParser): the `name: Function` /
+ * `name: App` parent-type tag — our discriminator — is resolved away and discarded by the
  * SchemaScript evaluator, but it is preserved on the raw {@see ModelDefinitionNode}.
  * Staying at the AST level also means a manifest never has to declare the
- * `Function` type or import a stdlib.
+ * `Function`/`App` types or import a stdlib.
+ *
+ * This class only lexes, discriminates by parent type and dispatches; each kind of
+ * declaration is built by its own builder under {@see Builder}.
  */
 final class ManifestParser
 {
     /** The parent type that marks a declaration as a syncable function. */
     public const FUNCTION_TYPE = 'Function';
 
-    /** Mirrors the server-side `function_key` validation. */
-    private const KEY_PATTERN = '/^[a-zA-Z_][a-zA-Z0-9_]*$/';
-
-    /** @var list<string> */
-    private const RUNTIMES = ['silicon', 'graph'];
-
-    private const MAX_NAME_LENGTH = 144;
-    private const MAX_DESCRIPTION_LENGTH = 1080;
+    /** The parent type that marks a declaration as a syncable app. */
+    public const APP_TYPE = 'App';
 
     /**
      * @throws ManifestException
      */
-    public function parseFile(string $path): FunctionManifest
+    public function parseFile(string $path): Manifest
     {
         $code = @\file_get_contents($path);
         if (false === $code) {
@@ -55,205 +53,149 @@ final class ManifestParser
      *
      * @throws ManifestException
      */
-    public function parse(string $code, string $path, string $baseDir): FunctionManifest
+    public function parse(string $code, string $path, string $baseDir): Manifest
+    {
+        $scope = $this->parseScope($code, $path);
+
+        $functionBuilder = new FunctionDefinitionBuilder();
+        $appBuilder = new AppDefinitionBuilder();
+
+        $functions = [];
+        $apps = [];
+        $seen = [];
+
+        foreach ($scope->getModels() as $model) {
+            $kind = match (true) {
+                self::hasParentType($model, self::FUNCTION_TYPE) => 'function',
+                self::hasParentType($model, self::APP_TYPE) => 'app',
+                default => null,
+            };
+
+            if (null === $kind) {
+                continue;
+            }
+
+            $ctx = new DeclarationContext($kind, $model->getName(), $path, $baseDir);
+
+            // Declaration names share one namespace: a function and an app cannot both
+            // be called `support`, or a `[functions]` reference would be ambiguous.
+            if (isset($seen[$model->getName()])) {
+                throw new ManifestException(\sprintf('Duplicate declaration "%s" in manifest "%s".', $model->getName(), $path));
+            }
+            $seen[$model->getName()] = $kind;
+
+            if ('function' === $kind) {
+                $functions[] = $functionBuilder->build($model, $ctx);
+            } else {
+                $apps[] = $appBuilder->build($model, $ctx);
+            }
+        }
+
+        $manifest = new Manifest($path, $functions, $apps);
+        $this->linkDeclarations($manifest, $seen);
+
+        return $manifest;
+    }
+
+    /**
+     * Validate references between declarations, once every declaration is known.
+     *
+     * Doing this after the fact — the same way `[copy]` resolves only once all of its
+     * blocks are collected — means a sub-agent may point at an app declared further
+     * down the file, and a typo fails here rather than as a 400 halfway through a sync.
+     *
+     * @param array<string, string> $kinds declaration name => kind
+     *
+     * @throws ManifestException
+     */
+    private function linkDeclarations(Manifest $manifest, array $kinds): void
+    {
+        foreach ($manifest->apps as $app) {
+            $ctx = new DeclarationContext('app', $app->declaration, $manifest->path, $manifest->directory());
+
+            foreach ($app->functions ?? [] as $link) {
+                // A key this manifest doesn't declare is legitimate — the function may
+                // exist only remotely — but a key that names an *app* never is, and
+                // finding out at sync time costs a vendor lookup and a function search
+                // to arrive at advice ("sync without a filter first") that cannot help.
+                if ('app' === ($kinds[$link->name] ?? null)) {
+                    throw $ctx->invalid(\sprintf('[functions] → "%s" references an app, not a function', $link->name));
+                }
+            }
+
+            foreach ($app->subagents ?? [] as $subagent) {
+                // A numeric target addresses an app outside this manifest directly.
+                if (null !== $subagent->targetId) {
+                    continue;
+                }
+
+                $where = \sprintf('[subagents] → %s → [app]', $subagent->alias);
+
+                if ($subagent->target === $app->declaration) {
+                    throw $ctx->invalid(\sprintf('%s points at its own app — an app cannot delegate to itself', $where));
+                }
+
+                $kind = $kinds[$subagent->target] ?? null;
+
+                if (null === $kind) {
+                    throw $ctx->invalid(\sprintf('%s references undeclared app "%s"', $where, $subagent->target));
+                }
+
+                if ('app' !== $kind) {
+                    throw $ctx->invalid(\sprintf('%s references "%s", which is a function, not an app', $where, $subagent->target));
+                }
+            }
+        }
+    }
+
+    /**
+     * @throws ManifestException
+     */
+    private function parseScope(string $code, string $path): ScopeNode
     {
         try {
             $tokens = (new Lexer($code, $path))->tokens();
             $scope = (new ScopeParser($tokens))->parse();
         } catch (Throwable $e) {
-            throw new ManifestException(\sprintf('Failed to parse manifest "%s": %s', $path, $e->getMessage()), 0, $e);
+            throw new ManifestException(\sprintf('Failed to parse manifest "%s": %s%s', $path, $e->getMessage(), self::parseHint($e->getMessage())), 0, $e);
         }
 
         \assert($scope instanceof ScopeNode);
 
-        $functions = [];
-        $seen = [];
-        foreach ($scope->getModels() as $model) {
-            if (!$this->isFunction($model)) {
-                continue;
-            }
-
-            $function = $this->buildFunction($model, $path, $baseDir);
-
-            if (isset($seen[$function->functionKey])) {
-                throw new ManifestException(\sprintf('Duplicate function "%s" in manifest "%s".', $function->functionKey, $path));
-            }
-            $seen[$function->functionKey] = true;
-            $functions[] = $function;
-        }
-
-        return new FunctionManifest($path, $functions);
+        return $scope;
     }
 
-    private function isFunction(ModelDefinitionNode $model): bool
+    /**
+     * Turn one confusing SchemaScript error into an actionable one.
+     *
+     * A `{ … }` block has to commit to a single shape: either bare names, or
+     * `[name] = { … }` entries. Mixing them makes the parser read the block as a list
+     * and then trip over the first bracket key, which is a genuinely baffling message
+     * for something people will write all the time.
+     */
+    private static function parseHint(string $message): string
+    {
+        if (!\str_contains($message, '(MetadataKey)') || !\str_contains($message, 'Unexpected token')) {
+            return '';
+        }
+
+        return '. A "{ … }" block must use one shape throughout — either bare names'
+            .' (newline- or comma-separated), or "[name] = { … }" entries, not both';
+    }
+
+    /**
+     * Whether a declaration carries `: $type` as one of its parent types — the
+     * discriminator that tells `foo: Function {…}` apart from any other model.
+     */
+    private static function hasParentType(ModelDefinitionNode $model, string $type): bool
     {
         foreach ($model->getParentTypes() as $parent) {
             if (($parent instanceof SimpleTypeNode || $parent instanceof GenericTypeNode)
-                && self::FUNCTION_TYPE === $parent->getName()) {
+                && $type === $parent->getName()) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    private function buildFunction(ModelDefinitionNode $model, string $path, string $baseDir): FunctionDefinition
-    {
-        $key = $model->getName();
-        if (1 !== \preg_match(self::KEY_PATTERN, $key)) {
-            throw $this->invalid($path, $key, 'the declaration name must match /^[a-zA-Z_][a-zA-Z0-9_]*$/');
-        }
-
-        /** @var array<string, string> $meta */
-        $meta = [];
-        /** @var list<MetadataEntryNode> $copyEntries */
-        $copyEntries = [];
-        foreach ($model->getMetadata() as $entry) {
-            if ('copy' === $entry->getKey()) {
-                $copyEntries[] = $entry;
-                continue;
-            }
-            $value = MetadataValueReader::asString($entry->getValue());
-            if (null !== $value) {
-                $meta[$entry->getKey()] = $value;
-            }
-        }
-
-        $name = $this->require($meta, 'name', $path, $key);
-        $description = $this->require($meta, 'description', $path, $key);
-        $runtime = $this->require($meta, 'runtime', $path, $key);
-        $srcdir = $this->require($meta, 'srcdir', $path, $key);
-        $entry = $this->require($meta, 'entry', $path, $key);
-
-        if (\mb_strlen($name) > self::MAX_NAME_LENGTH) {
-            throw $this->invalid($path, $key, \sprintf('[name] must be at most %d characters', self::MAX_NAME_LENGTH));
-        }
-        if (\mb_strlen($description) > self::MAX_DESCRIPTION_LENGTH) {
-            throw $this->invalid($path, $key, \sprintf('[description] must be at most %d characters', self::MAX_DESCRIPTION_LENGTH));
-        }
-        if (!\in_array($runtime, self::RUNTIMES, true)) {
-            throw $this->invalid($path, $key, \sprintf('[runtime] must be one of %s', \implode(', ', self::RUNTIMES)));
-        }
-
-        $srcdirPath = $this->resolvePath($baseDir, $srcdir);
-        if (!\is_dir($srcdirPath)) {
-            throw $this->invalid($path, $key, \sprintf('[srcdir] "%s" is not a directory', $srcdirPath));
-        }
-
-        $entryPath = $srcdirPath.\DIRECTORY_SEPARATOR.$entry;
-        if (!\is_file($entryPath)) {
-            throw $this->invalid($path, $key, \sprintf('[entry] "%s" does not exist', $entryPath));
-        }
-
-        $copies = $this->buildCopies($copyEntries, $path, $key, $baseDir);
-
-        return new FunctionDefinition(
-            functionKey: $key,
-            name: $name,
-            description: $description,
-            runtime: $runtime,
-            srcdir: $srcdir,
-            entry: $entry,
-            srcdirPath: $srcdirPath,
-            entryPath: $entryPath,
-            copies: $copies,
-        );
-    }
-
-    /**
-     * Resolve one or more `[copy]` directives into validated {@see CopyInstruction}s. A
-     * function may declare several `[copy]` blocks, each with its own optional `@path('dir/')`
-     * annotation giving that block's destination directory; each source's basename is appended
-     * to it. Sources resolve relative to the manifest directory. Destinations are deduplicated
-     * across **all** blocks, so a collision between two blocks is an error.
-     *
-     * @param list<MetadataEntryNode> $entries
-     *
-     * @return list<CopyInstruction>
-     */
-    private function buildCopies(array $entries, string $path, string $key, string $baseDir): array
-    {
-        $copies = [];
-        $seen = [];
-        foreach ($entries as $entry) {
-            $destDir = $this->copyDestDir($entry, $path, $key);
-
-            $value = $entry->getValue();
-            $items = $value instanceof MetadataListNode ? $value->getItems() : [$value];
-
-            foreach ($items as $item) {
-                $source = MetadataValueReader::asString($item);
-                if (null === $source || '' === $source) {
-                    throw $this->invalid($path, $key, '[copy] must be a list of non-empty source path strings');
-                }
-
-                $sourcePath = $this->resolvePath($baseDir, $source);
-                if (!\is_file($sourcePath)) {
-                    throw $this->invalid($path, $key, \sprintf('[copy] source "%s" does not exist', $sourcePath));
-                }
-
-                $destination = ('' === $destDir ? '' : $destDir.'/').\basename($source);
-                if (isset($seen[$destination])) {
-                    throw $this->invalid($path, $key, \sprintf('[copy] destination "%s" is declared more than once', $destination));
-                }
-                $seen[$destination] = true;
-
-                $copies[] = new CopyInstruction($sourcePath, $destination);
-            }
-        }
-
-        return $copies;
-    }
-
-    /**
-     * Resolve a `[copy]` block's destination directory from its optional `@path('dir/')`
-     * annotation, with surrounding slashes trimmed. Returns '' when no annotation is present
-     * (copied files land at the function root).
-     */
-    private function copyDestDir(MetadataEntryNode $entry, string $path, string $key): string
-    {
-        $destDir = '';
-        foreach ($entry->getAnnotations() as $annotation) {
-            if ('path' !== $annotation->getName()) {
-                continue;
-            }
-            $arguments = $annotation->getArguments();
-            $destDir = MetadataValueReader::asString($arguments[0] ?? null);
-            if (null === $destDir) {
-                throw $this->invalid($path, $key, '@path(...) requires a single string directory argument');
-            }
-            break;
-        }
-
-        return \trim($destDir, '/');
-    }
-
-    /**
-     * @param array<string, string> $meta
-     */
-    private function require(array $meta, string $field, string $path, string $key): string
-    {
-        $value = $meta[$field] ?? '';
-        if ('' === $value) {
-            throw $this->invalid($path, $key, \sprintf('[%s] is required and must be a non-empty string', $field));
-        }
-
-        return $value;
-    }
-
-    private function resolvePath(string $baseDir, string $srcdir): string
-    {
-        $srcdir = \rtrim($srcdir, '/\\');
-
-        if ('' !== $srcdir && ('/' === $srcdir[0] || 1 === \preg_match('/^[A-Za-z]:[\\\\\/]/', $srcdir))) {
-            return $srcdir;
-        }
-
-        return \rtrim($baseDir, '/\\').\DIRECTORY_SEPARATOR.\ltrim($srcdir, '/\\');
-    }
-
-    private function invalid(string $path, string $key, string $reason): ManifestException
-    {
-        return new ManifestException(\sprintf('Invalid function "%s" in manifest "%s": %s.', $key, $path, $reason));
     }
 }

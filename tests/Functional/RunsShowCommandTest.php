@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace Llmor\Cli\Tests\Functional;
 
 use Llmor\Cli\Command\Run\RunsShowCommand;
-use Llmor\Cli\Config\Configuration;
-use Llmor\Cli\Services;
 use Llmor\Cli\Tests\Support\FakeLlmorApi;
 use Llmor\Cli\Tests\Support\TempProject;
+use Llmor\Cli\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -51,7 +50,7 @@ final class RunsShowCommandTest extends TestCase
         self::assertStringContainsString('success', $display);
         self::assertStringContainsString('hello from lua', $display);
 
-        $call = $this->findCall($api, 'GET', '#/v1/vendors/42/functions/7/runs/99$#');
+        $call = $api->findCall('GET', '#/v1/vendors/42/functions/7/runs/99$#');
         self::assertNotNull($call, 'The run is fetched under the resolved vendor and function ids.');
     }
 
@@ -84,24 +83,9 @@ final class RunsShowCommandTest extends TestCase
 
     private function tester(FakeLlmorApi $api): CommandTester
     {
-        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', 'acme-co', $this->projectDir);
-        $services = new Services($config, $api->client());
+        $client = TestClient::forApi($api, $this->projectDir);
 
-        return new CommandTester(new RunsShowCommand($services->client, 'acme-co', $this->projectDir));
-    }
-
-    /**
-     * @return array{method: string, path: string, body: array<string, mixed>}|null
-     */
-    private function findCall(FakeLlmorApi $api, string $method, string $pattern): ?array
-    {
-        foreach ($api->calls as $call) {
-            if ($call['method'] === $method && 1 === \preg_match($pattern, $call['path'])) {
-                return $call;
-            }
-        }
-
-        return null;
+        return new CommandTester(new RunsShowCommand($client, TestClient::VENDOR_KEY, $this->projectDir));
     }
 
     private function manifest(): string

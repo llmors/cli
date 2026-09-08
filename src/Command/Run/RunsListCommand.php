@@ -44,7 +44,7 @@ final class RunsListCommand extends AbstractManifestCommand
 
         try {
             $manifest = $this->loadManifest();
-            $function = $manifest->get($name);
+            $function = $manifest->getFunction($name);
             if (null === $function) {
                 $io->error(\sprintf('Function "%s" is not declared in the manifest.', $name));
 

@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace Llmor\Cli\Tests\Functional;
 
 use Llmor\Cli\Command\Run\RunsListCommand;
-use Llmor\Cli\Config\Configuration;
-use Llmor\Cli\Services;
 use Llmor\Cli\Tests\Support\FakeLlmorApi;
 use Llmor\Cli\Tests\Support\TempProject;
+use Llmor\Cli\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -53,7 +52,7 @@ final class RunsListCommandTest extends TestCase
         self::assertStringContainsString('explicit failure', $display);
         self::assertStringContainsString('2 total', $display);
 
-        $runs = $this->findCall($api, 'GET', '#/v1/vendors/42/functions/7/runs$#');
+        $runs = $api->findCall('GET', '#/v1/vendors/42/functions/7/runs$#');
         self::assertNotNull($runs, 'The runs list must be fetched under the resolved vendor and function ids.');
     }
 
@@ -83,31 +82,16 @@ final class RunsListCommandTest extends TestCase
         self::assertSame(1, $exit);
         self::assertStringContainsString('has not been synced yet', $tester->getDisplay());
         self::assertNull(
-            $this->findCall($api, 'GET', '#/functions/\d+/runs$#'),
+            $api->findCall('GET', '#/functions/\d+/runs$#'),
             'An unsynced function must not hit the runs endpoint.',
         );
     }
 
     private function tester(FakeLlmorApi $api): CommandTester
     {
-        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', 'acme-co', $this->projectDir);
-        $services = new Services($config, $api->client());
+        $client = TestClient::forApi($api, $this->projectDir);
 
-        return new CommandTester(new RunsListCommand($services->client, 'acme-co', $this->projectDir));
-    }
-
-    /**
-     * @return array{method: string, path: string, body: array<string, mixed>}|null
-     */
-    private function findCall(FakeLlmorApi $api, string $method, string $pattern): ?array
-    {
-        foreach ($api->calls as $call) {
-            if ($call['method'] === $method && 1 === \preg_match($pattern, $call['path'])) {
-                return $call;
-            }
-        }
-
-        return null;
+        return new CommandTester(new RunsListCommand($client, TestClient::VENDOR_KEY, $this->projectDir));
     }
 
     private function manifest(): string

@@ -14,6 +14,7 @@
 
 # Local credentials & sessions (never commit these)
 /.llmor/
+.llmor/
 .env
 
 # OS / editor noise

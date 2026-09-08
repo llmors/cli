@@ -15,6 +15,9 @@ final class SyncError
     public const SCOPE_MANIFEST = 'manifest';
     public const SCOPE_VENDOR = 'vendor';
     public const SCOPE_FUNCTION = 'function';
+    public const SCOPE_APP = 'app';
+    public const SCOPE_SUBAGENT = 'subagent';
+    public const SCOPE_LOCK = 'lock';
     public const SCOPE_FILE = 'file';
     public const SCOPE_INPUT = 'input';
 
@@ -26,13 +29,14 @@ final class SyncError
     public const CATEGORY_INPUT = 'input';
 
     /**
-     * @param array<string, list<string>> $fields cleaned per-field messages (validation only)
+     * @param ?string                     $subject the declaration this is about, if any
+     * @param array<string, list<string>> $fields  cleaned per-field messages (validation only)
      */
     public function __construct(
         public readonly string $scope,
         public readonly string $category,
         public readonly string $summary,
-        public readonly ?string $functionKey = null,
+        public readonly ?string $subject = null,
         public readonly array $fields = [],
         public readonly ?string $hint = null,
         public readonly int $statusCode = 0,
@@ -41,9 +45,9 @@ final class SyncError
     }
 
     /** A short label for who/what this error is about. */
-    public function subject(): string
+    public function subjectLabel(): string
     {
-        return $this->functionKey ?? $this->scope;
+        return $this->subject ?? $this->scope;
     }
 
     /**
@@ -52,7 +56,7 @@ final class SyncError
     public function toArray(): array
     {
         return \array_filter([
-            'function_key' => $this->functionKey,
+            'subject' => $this->subject,
             'scope' => $this->scope,
             'category' => $this->category,
             'summary' => $this->summary,

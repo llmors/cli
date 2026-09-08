@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace Llmor\Cli\Tests\Functional;
 
 use Llmor\Cli\Command\Run\RunCommand;
-use Llmor\Cli\Config\Configuration;
-use Llmor\Cli\Services;
 use Llmor\Cli\Tests\Support\FakeLlmorApi;
 use Llmor\Cli\Tests\Support\TempProject;
+use Llmor\Cli\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -56,7 +55,7 @@ final class RunCommandTest extends TestCase
         self::assertStringContainsString('success', $tester->getDisplay());
         self::assertStringContainsString('hello from lua', $tester->getDisplay());
 
-        $build = $this->findCall($api, 'POST', '#/functions/7/build$#');
+        $build = $api->findCall('POST', '#/functions/7/build$#');
         self::assertNotNull($build);
         self::assertSame(self::LUA, $build['body']['code']);
         self::assertSame(['q' => 'test'], $build['body']['arguments'], '--arg pairs land in the arguments payload.');
@@ -144,8 +143,44 @@ final class RunCommandTest extends TestCase
         self::assertStringContainsString('boom', $tester->getDisplay());
 
         self::assertNull(
-            $this->findCall($api, 'POST', '#/v1/vendors/42/functions$#'),
+            $api->findCall('POST', '#/v1/vendors/42/functions$#'),
             '--no-sync must not create or update the function.',
+        );
+    }
+
+    public function testRendersAnExplicitFailureMessageGivenAsABareString(): void
+    {
+        $existing = ['id' => 7, 'function_key' => 'pjas_silicon_docs'];
+
+        $api = (new FakeLlmorApi())
+            ->on('GET', '#/v1/vendors$#', static fn (): array => [200, ['data' => [['id' => 42, 'key' => 'acme-co']]]])
+            ->on('GET', '#/functions$#', static fn (): array => [200, ['data' => [$existing]]])
+            ->on('POST', '#/functions/\d+/build$#', static fn (): array => [200, ['data' => [
+                'id' => 100,
+                'status' => -5,
+                'took' => 3,
+                'memory' => 1024,
+                'result' => null,
+                'console' => [],
+                // what a silicon failure('…') actually comes back as: a bare string,
+                // not the {message, line} shape a persisted run record uses.
+                'error' => 'FILE NOT FOUND: docs/book/nope.md',
+            ]]]);
+
+        $tester = $this->tester($api);
+        $exit = $tester->execute(['name' => 'pjas_silicon_docs', '--no-sync' => true]);
+        $display = $tester->getDisplay();
+
+        self::assertSame(1, $exit);
+        self::assertStringContainsString(
+            'FILE NOT FOUND: docs/book/nope.md',
+            $display,
+            'a string error must reach the Error pane instead of being swallowed.',
+        );
+        self::assertStringNotContainsString(
+            'null',
+            $display,
+            'a failed run has no meaningful result — do not print "Result null" over the reason.',
         );
     }
 
@@ -167,7 +202,7 @@ final class RunCommandTest extends TestCase
         self::assertStringContainsString('[runtime]', $display);
         self::assertStringContainsString("must be 'silicon' or 'graph'", $display);
         self::assertNull(
-            $this->findCall($api, 'POST', '#/build$#'),
+            $api->findCall('POST', '#/build$#'),
             'A failed sync must not proceed to the build/run step.',
         );
     }
@@ -188,24 +223,9 @@ final class RunCommandTest extends TestCase
 
     private function tester(FakeLlmorApi $api): CommandTester
     {
-        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', 'acme-co', $this->projectDir);
-        $services = new Services($config, $api->client());
+        $client = TestClient::forApi($api, $this->projectDir);
 
-        return new CommandTester(new RunCommand($services->client, 'acme-co', $this->projectDir));
-    }
-
-    /**
-     * @return array{method: string, path: string, body: array<string, mixed>}|null
-     */
-    private function findCall(FakeLlmorApi $api, string $method, string $pattern): ?array
-    {
-        foreach ($api->calls as $call) {
-            if ($call['method'] === $method && 1 === \preg_match($pattern, $call['path'])) {
-                return $call;
-            }
-        }
-
-        return null;
+        return new CommandTester(new RunCommand($client, TestClient::VENDOR_KEY, $this->projectDir));
     }
 
     private function manifest(): string

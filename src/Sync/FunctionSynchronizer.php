@@ -14,8 +14,6 @@ use Llmor\Cli\Manifest\FunctionDefinition;
  */
 final class FunctionSynchronizer
 {
-    private const PAGE_SIZE = 200;
-
     public function __construct(
         private readonly LlmorClient $client,
         private readonly int $vendorId,
@@ -38,20 +36,21 @@ final class FunctionSynchronizer
         $existing = $this->findFunction($function->functionKey);
 
         if (null === $existing) {
-            $result->functionAction = SyncResult::CREATED;
+            $result->functionAction = SyncOutcome::CREATED;
             if (!$dryRun) {
                 // is_library is required by the API and not declared in the manifest.
                 $created = $this->client->post($this->functionsPath(), $payload + ['is_library' => false])->data();
-                $result->functionId = isset($created['id']) ? (int) $created['id'] : null;
+                $result->functionId = Json::idOf($created['id'] ?? null);
             }
         } else {
-            $result->functionId = (int) $existing['id'];
-            if ($this->functionChanged($existing, $function, $code)) {
-                $result->functionAction = SyncResult::UPDATED;
+            $id = Json::idOf($existing['id'] ?? null);
+            $result->functionId = $id;
+            if (null !== $id && $this->functionChanged($existing, $function, $code)) {
+                $result->functionAction = SyncOutcome::UPDATED;
                 if (!$dryRun) {
                     // Preserve the existing library flag — the manifest doesn't own it.
                     $this->client->put(
-                        $this->functionPath($result->functionId),
+                        $this->functionPath($id),
                         $payload + ['is_library' => (bool) ($existing['is_library'] ?? false)],
                     );
                 }
@@ -70,7 +69,7 @@ final class FunctionSynchronizer
      */
     public function findFunction(string $functionKey): ?array
     {
-        foreach ($this->fetchAll($this->functionsPath(), ['search' => $functionKey]) as $item) {
+        foreach (PagedList::fetchAll($this->client, $this->functionsPath(), ['search' => $functionKey]) as $item) {
             if (($item['function_key'] ?? null) === $functionKey) {
                 return $item;
             }
@@ -142,13 +141,13 @@ final class FunctionSynchronizer
     private function listRemoteFiles(int $functionId): array
     {
         $files = [];
-        foreach ($this->fetchAll($this->filesPath($functionId), []) as $item) {
+        foreach (PagedList::fetchAll($this->client, $this->filesPath($functionId)) as $item) {
             if (!isset($item['path'])) {
                 continue;
             }
-            $files[(string) $item['path']] = [
-                'id' => (int) ($item['id'] ?? 0),
-                'hash' => (string) ($item['content_hash'] ?? ''),
+            $files[Json::stringOf($item['path'])] = [
+                'id' => Json::intOf($item['id'] ?? null),
+                'hash' => Json::stringOf($item['content_hash'] ?? null),
             ];
         }
 
@@ -160,43 +159,10 @@ final class FunctionSynchronizer
      */
     private function functionChanged(array $existing, FunctionDefinition $function, string $code): bool
     {
-        return (string) ($existing['name'] ?? '') !== $function->name
-            || (string) ($existing['description'] ?? '') !== $function->description
-            || (string) ($existing['runtime'] ?? '') !== $function->runtime
-            || (string) ($existing['code'] ?? '') !== $code;
-    }
-
-    /**
-     * Fetch every page of a list endpoint (the server caps page size at 200).
-     *
-     * @param array<string, scalar|null> $query
-     *
-     * @return list<array<string, mixed>>
-     */
-    private function fetchAll(string $path, array $query): array
-    {
-        $page = 0;
-        $collected = [];
-        do {
-            $response = $this->client->get($path, $query + [
-                'page' => $page,
-                'page_size' => self::PAGE_SIZE,
-                'count' => 1,
-            ]);
-
-            $items = $response->data();
-            foreach ($items as $item) {
-                if (\is_array($item)) {
-                    $collected[] = $item;
-                }
-            }
-
-            $meta = $response->meta();
-            $total = isset($meta['total_count']) ? (int) $meta['total_count'] : \count($collected);
-            ++$page;
-        } while ([] !== $items && \count($collected) < $total);
-
-        return $collected;
+        return Json::stringOf($existing['name'] ?? null) !== $function->name
+            || Json::stringOf($existing['description'] ?? null) !== $function->description
+            || Json::stringOf($existing['runtime'] ?? null) !== $function->runtime
+            || Json::stringOf($existing['code'] ?? null) !== $code;
     }
 
     private function functionsPath(): string

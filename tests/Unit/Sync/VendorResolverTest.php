@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace Llmor\Cli\Tests\Unit\Sync;
 
 use Llmor\Cli\Client\LlmorClient;
-use Llmor\Cli\Config\Configuration;
-use Llmor\Cli\Services;
 use Llmor\Cli\Sync\SyncException;
 use Llmor\Cli\Sync\VendorResolver;
 use Llmor\Cli\Tests\Support\FakeLlmorApi;
 use Llmor\Cli\Tests\Support\TempProject;
+use Llmor\Cli\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
@@ -57,8 +56,6 @@ final class VendorResolverTest extends TestCase
 
     private function client(FakeLlmorApi $api): LlmorClient
     {
-        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', 'acme-co', $this->projectDir);
-
-        return (new Services($config, $api->client()))->client;
+        return TestClient::forApi($api, $this->projectDir);
     }
 }

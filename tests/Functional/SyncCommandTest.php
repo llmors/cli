@@ -5,11 +5,10 @@ declare(strict_types=1);
 namespace Llmor\Cli\Tests\Functional;
 
 use Llmor\Cli\Command\Sync\SyncCommand;
-use Llmor\Cli\Config\Configuration;
-use Llmor\Cli\Services;
 use Llmor\Cli\Sync\FunctionSynchronizer;
 use Llmor\Cli\Tests\Support\FakeLlmorApi;
 use Llmor\Cli\Tests\Support\TempProject;
+use Llmor\Cli\Tests\Support\TestClient;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -51,13 +50,13 @@ final class SyncCommandTest extends TestCase
         self::assertSame(0, $exit, $tester->getDisplay());
         self::assertStringContainsString('created', $tester->getDisplay());
 
-        $create = $this->findCall($api, 'POST', '#/v1/vendors/42/functions$#');
+        $create = $api->findCall('POST', '#/v1/vendors/42/functions$#');
         self::assertNotNull($create);
         self::assertSame('pjas_silicon_docs', $create['body']['function_key']);
         self::assertSame('silicon', $create['body']['runtime']);
         self::assertSame(self::LUA, $create['body']['code'], 'The entry file becomes the function code.');
 
-        $file = $this->findCall($api, 'POST', '#/functions/7/files$#');
+        $file = $api->findCall('POST', '#/functions/7/files$#');
         self::assertNotNull($file);
         self::assertSame('notes.md', $file['body']['path']);
         self::assertSame(self::NOTES, $file['body']['content']);
@@ -160,7 +159,7 @@ final class SyncCommandTest extends TestCase
         self::assertStringContainsString('library flag', $display);
         self::assertStringNotContainsString('isLibrary', $display);
         // Aggregation: the second (valid) function still synced despite the first failing.
-        self::assertNotNull($this->findCall($api, 'POST', '#/functions/8/files$#'));
+        self::assertNotNull($api->findCall('POST', '#/functions/8/files$#'));
         self::assertStringContainsString('1 failed', $display);
     }
 
@@ -182,31 +181,16 @@ final class SyncCommandTest extends TestCase
         self::assertIsArray($payload);
         self::assertFalse($payload['ok']);
         self::assertSame(1, $payload['summary']['failed']);
-        self::assertSame('pjas_silicon_docs', $payload['errors'][0]['function_key']);
+        self::assertSame('pjas_silicon_docs', $payload['errors'][0]['subject']);
         self::assertSame('validation', $payload['errors'][0]['category']);
         self::assertArrayHasKey('runtime', $payload['errors'][0]['fields']);
     }
 
     private function tester(FakeLlmorApi $api): CommandTester
     {
-        $config = new Configuration('https://api.test', 'admin@test.llmor', 'pw', 'acme-co', $this->projectDir);
-        $services = new Services($config, $api->client());
+        $client = TestClient::forApi($api, $this->projectDir);
 
-        return new CommandTester(new SyncCommand($services->client, 'acme-co', $this->projectDir));
-    }
-
-    /**
-     * @return array{method: string, path: string, body: array<string, mixed>}|null
-     */
-    private function findCall(FakeLlmorApi $api, string $method, string $pattern): ?array
-    {
-        foreach ($api->calls as $call) {
-            if ($call['method'] === $method && 1 === \preg_match($pattern, $call['path'])) {
-                return $call;
-            }
-        }
-
-        return null;
+        return new CommandTester(new SyncCommand($client, TestClient::VENDOR_KEY, $this->projectDir));
     }
 
     private function manifest(): string

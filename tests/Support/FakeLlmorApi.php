@@ -61,6 +61,40 @@ final class FakeLlmorApi
     }
 
     /**
+     * The first recorded call matching a method and a path pattern, or null.
+     *
+     * @return array{method: string, path: string, body: array<string, mixed>}|null
+     */
+    public function findCall(string $method, string $pattern): ?array
+    {
+        foreach ($this->calls as $call) {
+            if ($call['method'] === $method && 1 === \preg_match($pattern, $call['path'])) {
+                return $call;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Every write the run made, as "METHOD /path", ignoring the auth handshake (which
+     * is a POST but not a change to anything).
+     *
+     * @return list<string>
+     */
+    public function writes(): array
+    {
+        $writes = [];
+        foreach ($this->calls as $call) {
+            if (\in_array($call['method'], ['POST', 'PUT', 'DELETE'], true) && !\str_contains($call['path'], '/v1/auth/')) {
+                $writes[] = $call['method'].' '.$call['path'];
+            }
+        }
+
+        return $writes;
+    }
+
+    /**
      * @param array<string, mixed> $body
      */
     private function json(array $body, int $status = 200): MockResponse

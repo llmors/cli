@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Llmor\Cli\Tests\Unit\Sync;
 
+use Llmor\Cli\Sync\SyncError;
 use Llmor\Cli\Sync\ValidationErrorFormatter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
@@ -50,8 +51,16 @@ final class ValidationErrorFormatterTest extends TestCase
 
     public function testHintForKnownRules(): void
     {
-        self::assertSame("must be 'silicon' or 'graph'", ValidationErrorFormatter::hint('runtime', ['bad']));
-        self::assertNull(ValidationErrorFormatter::hint('name', ['too long']));
+        self::assertSame("must be 'silicon' or 'graph'", ValidationErrorFormatter::hint(SyncError::SCOPE_FUNCTION, 'runtime'));
+        self::assertNull(ValidationErrorFormatter::hint(SyncError::SCOPE_APP, 'description'));
+    }
+
+    public function testAHintCanDifferByScope(): void
+    {
+        // A function's [name] has no lower bound; an app's does. Naming the wrong one
+        // sends the reader looking for a problem that isn't there.
+        self::assertSame('must be 2 to 144 characters', ValidationErrorFormatter::hint(SyncError::SCOPE_APP, 'name'));
+        self::assertSame('must be at most 144 characters', ValidationErrorFormatter::hint(SyncError::SCOPE_FUNCTION, 'name'));
     }
 
     public function testRulesBucketDropsMessagesThatDuplicateAField(): void
@@ -72,5 +81,35 @@ final class ValidationErrorFormatterTest extends TestCase
         ]);
 
         self::assertSame(['The specified vendor app does not belong to this vendor.'], $clean['rules']);
+    }
+
+    public function testNestedFieldMapsFlattenToDottedPaths(): void
+    {
+        // App validation nests one level down: the server rejects `parameters` as a
+        // whole and puts the real messages under the individual parameter keys.
+        // Reading only the top level would render an error with nothing under it.
+        $clean = ValidationErrorFormatter::clean([
+            'parameters' => [
+                'temperature' => ['must be at most 2'],
+                'prompt' => ['stringType' => 'must not be empty'],
+                'enable_ask_user' => [],
+            ],
+            'name' => [],
+        ]);
+
+        self::assertSame(['parameters.temperature', 'parameters.prompt'], \array_keys($clean));
+        self::assertSame(['must be at most 2'], $clean['parameters.temperature']);
+        self::assertSame(['must not be empty'], $clean['parameters.prompt']);
+        self::assertSame('[parameters] → temperature', ValidationErrorFormatter::label('parameters.temperature'));
+        self::assertSame('the [entry] file → inner', ValidationErrorFormatter::label('code.inner'), 'Only the head segment is relabelled.');
+    }
+
+    public function testNestingStopsAtTheDepthCap(): void
+    {
+        $clean = ValidationErrorFormatter::clean([
+            'a' => ['b' => ['c' => ['d' => ['e' => ['too deep']]]]],
+        ]);
+
+        self::assertSame([], $clean, 'A pathological response is dropped rather than printed.');
     }
 }

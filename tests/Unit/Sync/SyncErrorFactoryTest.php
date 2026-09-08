@@ -28,7 +28,7 @@ final class SyncErrorFactoryTest extends TestCase
         $error = SyncErrorFactory::fromThrowable($e, 'my_fn', SyncError::SCOPE_FUNCTION);
 
         self::assertSame(SyncError::CATEGORY_VALIDATION, $error->category);
-        self::assertSame('my_fn', $error->functionKey);
+        self::assertSame('my_fn', $error->subject);
         self::assertArrayHasKey('runtime', $error->fields);
         self::assertSame("must be 'silicon' or 'graph'", $error->hint);
         self::assertSame(400, $error->statusCode);

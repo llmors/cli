@@ -35,6 +35,16 @@ trait TempProject
         return $path;
     }
 
+    protected function projectPath(string $relativePath): string
+    {
+        return $this->projectDir.'/'.$relativePath;
+    }
+
+    protected function readProjectFile(string $relativePath): string
+    {
+        return (string) \file_get_contents($this->projectPath($relativePath));
+    }
+
     protected function removeProject(): void
     {
         if (!isset($this->projectDir) || !\is_dir($this->projectDir)) {

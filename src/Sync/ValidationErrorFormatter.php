@@ -28,11 +28,40 @@ final class ValidationErrorFormatter
         'path' => 'auxiliary file path',
         'content' => 'auxiliary file content',
         'content_type' => 'auxiliary file content type',
+        // apps
+        'app_key' => '[app_key]',
+        'parameters' => '[parameters]',
+        'completion_vendor_model_id' => '[model]',
+        'functions' => '[functions]',
+        'function_config' => '[functions] config',
+        'alias' => '[subagents] alias',
+        'target_vendor_app_id' => '[subagents] [app]',
+        'expose_as_tool' => '[expose_as_tool]',
+        'tool_name' => '[tool_name]',
+        'tool_description' => '[tool_description]',
+        'input_description' => '[input_description]',
+        'assist_feature_key' => 'assist feature key',
+        // An app's PUT is validated against the whole merged record, so a field the
+        // manifest doesn't own can still fail. Saying where it lives saves a hunt.
+        'embed_config' => 'embed config (managed in the console)',
+        'allowed_origins' => 'allowed origins (managed in the console)',
+        'conversation_expire_after' => 'conversation expiry (managed in the console)',
     ];
+
+    /** How deep to walk a nested errors map before giving up. */
+    private const MAX_DEPTH = 4;
+
+    /** Upper bound on rendered fields, so a pathological response can't print 500 lines. */
+    private const MAX_FIELDS = 25;
 
     /**
      * Collapse the raw errors map: drop empty fields, flatten `{rule: message}`
      * objects, and merge the camel/snake duplicates into one canonical entry.
+     *
+     * Nested maps are flattened to dotted paths, because app validation arrives one
+     * level down — `parameters` fails as `{"temperature": ["must be at most 2"]}`, and
+     * reading only the top level would leave the user with a bare "rejected by the API"
+     * and nothing under it.
      *
      * @param array<string, mixed> $raw
      *
@@ -41,23 +70,97 @@ final class ValidationErrorFormatter
     public static function clean(array $raw): array
     {
         $cleaned = [];
-        foreach ($raw as $field => $value) {
-            $messages = self::messages($value);
-            if ([] === $messages) {
+        self::flatten($raw, '', 0, $cleaned);
+
+        return self::dedupeRulesAgainstFields($cleaned);
+    }
+
+    /**
+     * Walk the errors map, collecting messages against the dotted path they belong to.
+     *
+     * A map whose values are strings is the server's `{rule: message}` shape, so its
+     * messages belong to the *parent* field; a map whose values are themselves
+     * structures is a nested field map and each key extends the path.
+     *
+     * @param array<array-key, mixed>     $value
+     * @param array<string, list<string>> &$cleaned
+     */
+    private static function flatten(array $value, string $prefix, int $depth, array &$cleaned): void
+    {
+        foreach ($value as $key => $item) {
+            if (\count($cleaned) >= self::MAX_FIELDS) {
+                return;
+            }
+
+            if (\is_string($item)) {
+                // {rule: message} — the message describes the field we're already on.
+                self::collect($cleaned, $prefix, [$item]);
                 continue;
             }
 
-            $key = self::canonical((string) $field);
-            $existing = $cleaned[$key] ?? [];
-            foreach ($messages as $message) {
-                if (!\in_array($message, $existing, true)) {
-                    $existing[] = $message;
-                }
+            if (!\is_array($item) || [] === $item) {
+                continue;
             }
-            $cleaned[$key] = $existing;
+
+            $path = self::extend($prefix, (string) $key);
+
+            if (self::isMessageList($item)) {
+                self::collect($cleaned, $path, \array_values(\array_filter($item, static fn (mixed $m): bool => \is_string($m) && '' !== $m)));
+                continue;
+            }
+
+            if ($depth + 1 >= self::MAX_DEPTH) {
+                continue;
+            }
+
+            self::flatten($item, $path, $depth + 1, $cleaned);
+        }
+    }
+
+    /**
+     * Whether a node is a leaf list of messages rather than a nested field map.
+     *
+     * @param array<array-key, mixed> $item
+     */
+    private static function isMessageList(array $item): bool
+    {
+        foreach ($item as $value) {
+            if (!\is_string($value)) {
+                return false;
+            }
         }
 
-        return self::dedupeRulesAgainstFields($cleaned);
+        return true;
+    }
+
+    /**
+     * @param array<string, list<string>> &$cleaned
+     * @param list<string>                $messages
+     */
+    private static function collect(array &$cleaned, string $path, array $messages): void
+    {
+        if ('' === $path || [] === $messages) {
+            return;
+        }
+
+        $existing = $cleaned[$path] ?? [];
+        foreach ($messages as $message) {
+            if ('' !== $message && !\in_array($message, $existing, true)) {
+                $existing[] = $message;
+            }
+        }
+
+        if ([] !== $existing) {
+            $cleaned[$path] = $existing;
+        }
+    }
+
+    /** Canonicalise each segment separately so dotted paths still dedupe camel/snake. */
+    private static function extend(string $prefix, string $key): string
+    {
+        $segment = self::canonical($key);
+
+        return '' === $prefix ? $segment : $prefix.'.'.$segment;
     }
 
     /**
@@ -96,48 +199,44 @@ final class ValidationErrorFormatter
         return $cleaned;
     }
 
+    /**
+     * A manifest-facing label for a field, or for a dotted path into a nested one:
+     * `parameters.temperature` reads as `[parameters] → temperature`.
+     */
     public static function label(string $field): string
     {
-        $key = self::canonical($field);
+        $segments = \explode('.', self::canonical($field));
+        $head = \array_shift($segments) ?? '';
+        $label = self::LABELS[$head] ?? $head;
 
-        return self::LABELS[$key] ?? $key;
+        return [] === $segments ? $label : $label.' → '.\implode(' → ', $segments);
     }
 
     /**
-     * An actionable suggestion for known fields/rules, or null.
+     * An actionable suggestion for a field that failed validation, or null.
      *
-     * @param list<string> $messages
+     * Some rules differ by what is being synced — a function's `[name]` has no minimum
+     * length, an app's does — so a hint may be keyed by `scope.field`, which wins over
+     * the field-only entry. Stating the wrong bound is worse than stating none.
      */
-    public static function hint(string $field, array $messages): ?string
+    public static function hint(string $scope, string $field): ?string
     {
-        return match (self::canonical($field)) {
-            'runtime' => "must be 'silicon' or 'graph'",
-            'function_key' => 'use letters, digits and underscores; it must start with a letter or underscore',
-            'content_type' => 'auxiliary files must be a supported text type (md, json, csv, html, xml, yaml or plain text)',
-            default => null,
+        $field = self::canonical($field);
+
+        return match (\sprintf('%s.%s', $scope, $field)) {
+            SyncError::SCOPE_APP.'.name' => 'must be 2 to 144 characters',
+            SyncError::SCOPE_FUNCTION.'.name' => 'must be at most 144 characters',
+            default => match ($field) {
+                'runtime' => "must be 'silicon' or 'graph'",
+                'function_key' => 'use letters, digits and underscores; it must start with a letter or underscore',
+                'content_type' => 'auxiliary files must be a supported text type (md, json, csv, html, xml, yaml or plain text)',
+                'app_key' => 'an app\'s type is fixed when it is created — use a new declaration name, or pin the existing app with [id]',
+                'alias' => 'lowercase, starting with a letter, 2 to 32 characters',
+                'tool_name' => "must be unique across this app's sub-agents and installed functions; letters, digits, '_' and '-', up to 64 characters",
+                'target_vendor_app_id' => 'the target must be another app of this vendor — check the [app] reference',
+                default => null,
+            },
         };
-    }
-
-    /**
-     * @return list<string>
-     */
-    private static function messages(mixed $value): array
-    {
-        if (\is_string($value)) {
-            return '' === $value ? [] : [$value];
-        }
-        if (!\is_array($value)) {
-            return [];
-        }
-
-        $messages = [];
-        foreach ($value as $item) {
-            if (\is_string($item) && '' !== $item) {
-                $messages[] = $item;
-            }
-        }
-
-        return $messages;
     }
 
     private static function canonical(string $field): string

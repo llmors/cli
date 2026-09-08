@@ -57,7 +57,9 @@ trait RendersRun
             OutputStyle::humanBytes((int) ($run['memory'] ?? 0)),
         ));
 
-        if (\array_key_exists('result', $run)) {
+        // a failed run's result is a meaningless null — the error pane below carries
+        // the reason, so don't print "Result null" above it.
+        if (\array_key_exists('result', $run) && (1 === $status || null !== $run['result'])) {
             $io->section('Result');
             $io->writeln($this->renderResult($run['result']));
         }
@@ -70,7 +72,14 @@ trait RendersRun
             }
         }
 
+        // a run record carries the error either as {message, line} or — the shape a
+        // build returns for an explicit failure() — as a bare string. Handling only
+        // the former swallowed the reason and left just "explicit failure" on screen.
         $error = $run['error'] ?? null;
+        if (\is_string($error)) {
+            $error = '' === $error ? null : ['message' => $error];
+        }
+
         if (\is_array($error) && '' !== (string) ($error['message'] ?? '')) {
             $io->section('Error');
             $line = isset($error['line']) ? \sprintf(' (line %s)', self::stringify($error['line'])) : '';

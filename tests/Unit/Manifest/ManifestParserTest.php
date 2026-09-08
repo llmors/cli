@@ -46,8 +46,8 @@ final class ManifestParserTest extends TestCase
     {
         $manifest = (new ManifestParser())->parse($this->validManifest(), 'llmor.scsc', $this->projectDir);
 
-        self::assertNotNull($manifest->get('pjas_silicon_docs'));
-        self::assertNull($manifest->get('missing'));
+        self::assertNotNull($manifest->getFunction('pjas_silicon_docs'));
+        self::assertNull($manifest->getFunction('missing'));
     }
 
     public function testRejectsUnknownRuntime(): void
@@ -159,6 +159,76 @@ final class ManifestParserTest extends TestCase
             "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n"
             ."  @path('docs/')\n  [copy] = {\n    './a/index.md',\n  }\n"
             ."  @path('docs/')\n  [copy] = {\n    './b/index.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    public function testExpandsAWildcardCopySource(): void
+    {
+        $this->writeProjectFile('help/a.md', "# a\n");
+        $this->writeProjectFile('help/b.md', "# b\n");
+        $this->writeProjectFile('help/notes.txt', "skip\n");
+
+        $manifest = (new ManifestParser())->parse(
+            "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n  @path('docs/')\n  [copy] = {\n    './help/*.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+
+        $destinations = \array_map(
+            static fn ($c): string => $c->destination,
+            $manifest->functions[0]->copies,
+        );
+        self::assertSame(['docs/a.md', 'docs/b.md'], $destinations);
+    }
+
+    public function testRecursiveWildcardKeepsTheSourceTreeShape(): void
+    {
+        $this->writeProjectFile('books/index.md', "# root\n");
+        $this->writeProjectFile('books/data/index.md', "# data\n");
+        $this->writeProjectFile('books/data/dql.md', "# dql\n");
+
+        $manifest = (new ManifestParser())->parse(
+            "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n  @path('docs/book/')\n  [copy] = {\n    './books/**/*.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+
+        $destinations = \array_map(
+            static fn ($c): string => $c->destination,
+            $manifest->functions[0]->copies,
+        );
+        self::assertSame(
+            ['docs/book/data/dql.md', 'docs/book/data/index.md', 'docs/book/index.md'],
+            $destinations,
+            'one pattern must mirror the tree — two index.md files cannot both flatten onto docs/book/index.md.',
+        );
+    }
+
+    public function testRejectsWildcardCopySourceMatchingNothing(): void
+    {
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/matched no files/');
+
+        (new ManifestParser())->parse(
+            "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n  @path('docs/')\n  [copy] = {\n    './help/*.md',\n  }\n}",
+            'llmor.scsc',
+            $this->projectDir,
+        );
+    }
+
+    public function testStillRejectsCollisionsBetweenAWildcardAndALiteral(): void
+    {
+        $this->writeProjectFile('help/a.md', "# a\n");
+        $this->writeProjectFile('other/a.md', "# other a\n");
+
+        $this->expectException(ManifestException::class);
+        $this->expectExceptionMessageMatches('/declared more than once/');
+
+        (new ManifestParser())->parse(
+            "f: Function {\n  [name]='F'\n  [description]='D'\n  [runtime]='silicon'\n  [srcdir]='./main'\n  [entry]='main.lua'\n"
+            ."  @path('docs/')\n  [copy] = {\n    './help/*.md',\n    './other/a.md',\n  }\n}",
             'llmor.scsc',
             $this->projectDir,
         );

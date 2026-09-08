@@ -6,12 +6,19 @@ namespace Llmor\Cli\Command;
 
 use Llmor\Cli\Client\LlmorClient;
 use Llmor\Cli\Console\OutputStyle;
-use Llmor\Cli\Manifest\FunctionManifest;
+use Llmor\Cli\Manifest\Manifest;
 use Llmor\Cli\Manifest\ManifestException;
 use Llmor\Cli\Manifest\ManifestLocator;
 use Llmor\Cli\Manifest\ManifestParser;
+use Llmor\Cli\Sync\AppLockFile;
+use Llmor\Cli\Sync\AppResolver;
+use Llmor\Cli\Sync\AppSynchronizer;
+use Llmor\Cli\Sync\FunctionIdResolver;
 use Llmor\Cli\Sync\FunctionSynchronizer;
+use Llmor\Cli\Sync\ModelResolver;
+use Llmor\Cli\Sync\RemoteAppIndex;
 use Llmor\Cli\Sync\SyncError;
+use Llmor\Cli\Sync\SyncOutcome;
 use Llmor\Cli\Sync\SyncReport;
 use Llmor\Cli\Sync\ValidationErrorFormatter;
 use Llmor\Cli\Sync\VendorResolver;
@@ -34,7 +41,7 @@ abstract class AbstractManifestCommand extends AbstractCommand
     /**
      * @throws ManifestException when no manifest exists or it cannot be parsed
      */
-    protected function loadManifest(): FunctionManifest
+    protected function loadManifest(): Manifest
     {
         $path = (new ManifestLocator($this->workingDir))->locate();
         if (null === $path) {
@@ -55,6 +62,34 @@ abstract class AbstractManifestCommand extends AbstractCommand
     }
 
     /**
+     * The `llmor.lock` beside a manifest — the app-id bindings this project owns.
+     *
+     * A dry run gets a read-only lock, so "writes nothing at all" is a property of the
+     * file itself rather than a rule every caller has to remember.
+     */
+    protected function lockFile(Manifest $manifest, bool $dryRun = false): AppLockFile
+    {
+        return AppLockFile::besideManifest($manifest->path, $dryRun);
+    }
+
+    protected function appResolver(AppLockFile $lock, int $vendorId): AppResolver
+    {
+        return new AppResolver($this->vendorKey ?? '', $lock, RemoteAppIndex::fetch($this->client, $vendorId));
+    }
+
+    protected function appSynchronizer(AppLockFile $lock, int $vendorId, FunctionIdResolver $functions): AppSynchronizer
+    {
+        return new AppSynchronizer(
+            $this->client,
+            $vendorId,
+            $this->vendorKey ?? '',
+            $lock,
+            new ModelResolver($this->client, $vendorId),
+            $functions,
+        );
+    }
+
+    /**
      * Render a full sync report: the per-function outcomes, warnings, collected
      * errors (grouped, with hints) and a final one-line summary.
      */
@@ -66,36 +101,32 @@ abstract class AbstractManifestCommand extends AbstractCommand
         }
 
         foreach ($report->results as $result) {
-            $files = \sprintf(
-                '+%d ~%d -%d =%d',
-                \count($result->filesCreated),
-                \count($result->filesUpdated),
-                \count($result->filesDeleted),
-                $result->filesUnchanged,
-            );
-
-            [$glyph, $tag] = match ($result->functionAction) {
-                'created' => ['<ok>✓</ok>', 'ok'],
-                'updated' => ['<warn>●</warn>', 'warn'],
+            [$glyph, $tag] = match ($result->action()) {
+                SyncOutcome::CREATED => ['<ok>✓</ok>', 'ok'],
+                SyncOutcome::UPDATED => ['<warn>●</warn>', 'warn'],
                 default => ['<muted>·</muted>', 'muted'],
             };
 
             $io->writeln(\sprintf(
                 '%s %s  <%s>%s</%s>  <muted>%s</muted>',
                 $glyph,
-                $result->functionKey,
+                $result->subject(),
                 $tag,
-                $result->functionAction,
+                $result->action(),
                 $tag,
-                $files,
+                $result->detail(),
             ));
+
+            foreach ($result->detailLines() as $line) {
+                $io->writeln(\sprintf('  <muted>↳</muted> %s', $line));
+            }
         }
 
         $warnings = $report->warnings();
         if ([] !== $warnings) {
             $io->newLine();
             foreach ($warnings as $warning) {
-                $io->warning(\sprintf('%s: %s', $warning['function_key'], $warning['message']));
+                $io->warning(\sprintf('%s: %s', $warning['subject'], $warning['message']));
             }
         }
 
@@ -115,7 +146,7 @@ abstract class AbstractManifestCommand extends AbstractCommand
      */
     protected function renderSyncError(OutputStyle $io, SyncError $error): void
     {
-        $io->writeln(\sprintf('<bad>✗ %s</bad> — %s', $error->subject(), $error->summary));
+        $io->writeln(\sprintf('<bad>✗ %s</bad> — %s', $error->subjectLabel(), $error->summary));
 
         foreach ($error->fields as $field => $messages) {
             $io->writeln(\sprintf('  <accent>%s</accent>  %s', ValidationErrorFormatter::label((string) $field), \implode('; ', $messages)));
@@ -132,9 +163,9 @@ abstract class AbstractManifestCommand extends AbstractCommand
         $counts = $report->actionCounts();
         $verb = $dryRun ? 'Would sync' : 'Synced';
         $ok = \sprintf(
-            '%s %d function(s): %d created, %d updated, %d unchanged',
+            '%s %s: %d created, %d updated, %d unchanged',
             $verb,
-            \count($report->results),
+            self::describeSubjects($report),
             $counts['created'],
             $counts['updated'],
             $counts['unchanged'],
@@ -147,5 +178,25 @@ abstract class AbstractManifestCommand extends AbstractCommand
         }
 
         $io->writeln(\sprintf('<ok>✓ %s</ok> · <bad>%d failed</bad>', $ok, \count($report->errors)));
+    }
+
+    /**
+     * "2 function(s), 1 app(s)" — one clause per kind that actually appears, so a
+     * functions-only project reads exactly as it always has.
+     */
+    private static function describeSubjects(SyncReport $report): string
+    {
+        $kinds = $report->kindCounts();
+        if ([] === $kinds) {
+            // Reachable only when every declaration failed, so don't claim a kind.
+            return 'nothing';
+        }
+
+        $parts = [];
+        foreach ($kinds as $kind => $count) {
+            $parts[] = \sprintf('%d %s(s)', $count, $kind);
+        }
+
+        return \implode(', ', $parts);
     }
 }

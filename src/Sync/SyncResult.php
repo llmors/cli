@@ -8,12 +8,8 @@ namespace Llmor\Cli\Sync;
  * Accumulates what {@see FunctionSynchronizer} did (or, in dry-run, would do) for a
  * single function, for the command layer to render.
  */
-final class SyncResult
+final class SyncResult implements SyncOutcome
 {
-    public const CREATED = 'created';
-    public const UPDATED = 'updated';
-    public const UNCHANGED = 'unchanged';
-
     public string $functionAction = self::UNCHANGED;
 
     public ?int $functionId = null;
@@ -36,9 +32,63 @@ final class SyncResult
     {
     }
 
+    public function kind(): string
+    {
+        return 'function';
+    }
+
+    public function subject(): string
+    {
+        return $this->functionKey;
+    }
+
+    public function action(): string
+    {
+        return $this->functionAction;
+    }
+
+    public function detail(): string
+    {
+        return \sprintf(
+            '+%d ~%d -%d =%d',
+            \count($this->filesCreated),
+            \count($this->filesUpdated),
+            \count($this->filesDeleted),
+            $this->filesUnchanged,
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function warnings(): array
+    {
+        return $this->warnings;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function detailLines(): array
+    {
+        return [];
+    }
+
+    /**
+     * @return array{created: int, updated: int, deleted: int}
+     */
+    public function fileCounts(): array
+    {
+        return [
+            'created' => \count($this->filesCreated),
+            'updated' => \count($this->filesUpdated),
+            'deleted' => \count($this->filesDeleted),
+        ];
+    }
+
     public function fileChangeCount(): int
     {
-        return \count($this->filesCreated) + \count($this->filesUpdated) + \count($this->filesDeleted);
+        return \array_sum($this->fileCounts());
     }
 
     /**
@@ -47,6 +97,7 @@ final class SyncResult
     public function toArray(): array
     {
         return [
+            'kind' => $this->kind(),
             'function_key' => $this->functionKey,
             'action' => $this->functionAction,
             'function_id' => $this->functionId,

@@ -17,15 +17,15 @@ use Throwable;
  */
 final class SyncErrorFactory
 {
-    public static function fromThrowable(Throwable $e, ?string $functionKey, string $scope): SyncError
+    public static function fromThrowable(Throwable $e, ?string $subject, string $scope): SyncError
     {
         return match (true) {
-            $e instanceof ValidationException => self::fromValidation($e, $functionKey, $scope),
+            $e instanceof ValidationException => self::fromValidation($e, $subject, $scope),
             $e instanceof AuthenticationException => new SyncError(
                 scope: $scope,
                 category: SyncError::CATEGORY_AUTH,
                 summary: $e->getMessage(),
-                functionKey: $functionKey,
+                subject: $subject,
                 hint: 'run `llmor auth:login` to refresh your credentials',
                 statusCode: $e->statusCode,
             ),
@@ -33,31 +33,31 @@ final class SyncErrorFactory
                 scope: $scope,
                 category: SyncError::CATEGORY_API,
                 summary: $e->getMessage(),
-                functionKey: $functionKey,
+                subject: $subject,
                 statusCode: $e->statusCode,
             ),
             $e instanceof ManifestException => new SyncError(
                 scope: $scope,
                 category: SyncError::CATEGORY_CONFIG,
                 summary: $e->getMessage(),
-                functionKey: $functionKey,
+                subject: $subject,
             ),
             $e instanceof JsonException => new SyncError(
                 scope: SyncError::SCOPE_INPUT,
                 category: SyncError::CATEGORY_INPUT,
                 summary: $e->getMessage(),
-                functionKey: $functionKey,
+                subject: $subject,
             ),
             default => new SyncError(
                 scope: $scope,
                 category: SyncError::CATEGORY_LOCAL,
                 summary: $e->getMessage(),
-                functionKey: $functionKey,
+                subject: $subject,
             ),
         };
     }
 
-    private static function fromValidation(ValidationException $e, ?string $functionKey, string $scope): SyncError
+    private static function fromValidation(ValidationException $e, ?string $subject, string $scope): SyncError
     {
         $fields = ValidationErrorFormatter::clean($e->errors());
 
@@ -65,9 +65,9 @@ final class SyncErrorFactory
             scope: $scope,
             category: SyncError::CATEGORY_VALIDATION,
             summary: 'the data was rejected by the API',
-            functionKey: $functionKey,
+            subject: $subject,
             fields: $fields,
-            hint: self::firstHint($fields),
+            hint: self::firstHint($scope, $fields),
             statusCode: $e->statusCode,
         );
     }
@@ -75,10 +75,10 @@ final class SyncErrorFactory
     /**
      * @param array<string, list<string>> $fields
      */
-    private static function firstHint(array $fields): ?string
+    private static function firstHint(string $scope, array $fields): ?string
     {
-        foreach ($fields as $field => $messages) {
-            $hint = ValidationErrorFormatter::hint((string) $field, $messages);
+        foreach (\array_keys($fields) as $field) {
+            $hint = ValidationErrorFormatter::hint($scope, (string) $field);
             if (null !== $hint) {
                 return $hint;
             }

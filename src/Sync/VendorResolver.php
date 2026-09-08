@@ -15,8 +15,6 @@ use Llmor\Cli\Client\LlmorClient;
  */
 final class VendorResolver
 {
-    private const PAGE_SIZE = 200;
-
     public function __construct(private readonly LlmorClient $client)
     {
     }
@@ -27,27 +25,12 @@ final class VendorResolver
             throw new SyncException('No vendor configured. Set LLMOR_VENDOR to your vendor key.');
         }
 
-        $page = 0;
-        $collected = 0;
-        do {
-            $response = $this->client->get('/v1/vendors', [
-                'page' => $page,
-                'page_size' => self::PAGE_SIZE,
-                'count' => 1,
-            ]);
-
-            $items = $response->data();
-            foreach ($items as $vendor) {
-                if (\is_array($vendor) && isset($vendor['key'], $vendor['id']) && (string) $vendor['key'] === $vendorKey) {
-                    return (int) $vendor['id'];
-                }
+        foreach (PagedList::fetchAll($this->client, '/v1/vendors') as $vendor) {
+            $id = Json::idOf($vendor['id'] ?? null);
+            if (null !== $id && Json::stringOf($vendor['key'] ?? null) === $vendorKey) {
+                return $id;
             }
-
-            $collected += \count($items);
-            $meta = $response->meta();
-            $total = isset($meta['total_count']) ? (int) $meta['total_count'] : $collected;
-            ++$page;
-        } while ([] !== $items && $collected < $total);
+        }
 
         throw new SyncException(\sprintf('Vendor "%s" not found or not accessible by this user.', $vendorKey));
     }
