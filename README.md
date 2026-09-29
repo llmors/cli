@@ -113,6 +113,10 @@ file, which is handy for CI.
 ./bin/llmor auth:whoami --json       # raw JSON
 ./bin/llmor auth:logout              # forget the cached session (keeps .env)
 ./bin/llmor conversations:list       # list conversations
+./bin/llmor models:list              # models this vendor can use in an app's [model]
+./bin/llmor models:list --type all   # embedding models too
+./bin/llmor test <app>               # chat with a declared app (REPL)
+./bin/llmor apps:import              # pull an existing app into llmor.scsc
 ./bin/llmor self-update              # update an installed phar to the latest release
 ```
 
@@ -192,7 +196,7 @@ instead of in the web console:
 
 ```scsc
 support_bot: App {
-  [app_key]     = 'llmor/generic'
+  [app_type]    = 'llmor/generic'
   [name]        = 'Support Bot'
   [description] = 'Answers customer questions.'
   [model]       = 'GPT-4'
@@ -221,19 +225,22 @@ support_bot: App {
 }
 
 research_bot: App {
-  [app_key] = 'llmor/generic'
-  [name]    = 'Research Bot'
+  [app_type] = 'llmor/generic'
+  [name]     = 'Research Bot'
 }
 ```
 
-- `[app_key]` is the **app type** — `llmor/generic`, `llmor/generic_embedded`,
+- `[app_type]` is the **app type** — `llmor/generic`, `llmor/generic_embedded`,
   `llmor/oneshot`, `llmor/autopilot` or `llmor/silicon`. It is fixed when the app is
-  created and can never be changed afterwards.
-- Only `[app_key]` is required. Without `[name]`/`[description]` the app type's own
+  created and can never be changed afterwards. (It used to be spelled `[app_key]`, which
+  still works but warns on every sync; rename it when you next touch the file.)
+- Only `[app_type]` is required. Without `[name]`/`[description]` the app type's own
   name and description are used, and without `[model]` the vendor's default completion
   model is picked.
 - `[model]` is a model **name** as shown in the console; the CLI resolves it to an id.
-  Names aren't unique, so an ambiguous one is an error rather than a guess.
+  Names aren't unique, so an ambiguous one is an error rather than a guess. Run
+  `./bin/llmor models:list` for the names this vendor accepts — it marks the default
+  model with `●` and flags expired ones.
 - **`@file('./path')`** makes any value come from a file next to the manifest. Use it
   for system prompts, Lua `code`, JSON schemas and CSS — anything you would rather edit
   and diff on its own.
@@ -252,7 +259,7 @@ research_bot: App {
 
 ### `llmor.lock` — commit it
 
-Functions reconcile by their key, but an app has no such field: `app_key` names the
+Functions reconcile by their key, but an app has no such field: `[app_type]` names the
 *type* and the same type can be installed many times, so an app's only identity is its
 numeric id. The CLI records those ids in **`llmor.lock`** next to your manifest, keyed
 by vendor, and that file is meant to be committed — it is what makes `support_bot` mean
@@ -260,7 +267,7 @@ the same app on your machine, your colleague's and in CI. Keying by vendor also 
 manifest target staging and production without the two fighting over ids.
 
 On a first sync with no lock entry, an app that already exists is **adopted** when
-exactly one remote app has the same `[name]` and `[app_key]` — so pointing a manifest at
+exactly one remote app has the same `[name]` and `[app_type]` — so pointing a manifest at
 apps you built by hand doesn't duplicate them. If several match, the sync stops and asks
 you to pin one with `[id] = <id>`.
 
@@ -288,6 +295,122 @@ reserves that for super-admins), so review a `--dry-run` before a first sync.
 files. `sync` only writes when something actually changed, so re-running it on an
 unchanged project is a no-op. Both commands resolve your configured vendor **key**
 to its numeric id (functions are pathed by id) and require `LLMOR_VENDOR` to be set.
+
+### `apps:import` — start from an app you already have
+
+Most apps are born in the console, not in a manifest, and writing the declaration by
+hand means guessing at a parameter bag you can't see — so the first `sync` pushes a pile
+of changes you never asked for. `apps:import` goes the other way: it reads the app,
+writes the declaration it would have been parsed from, appends that to `llmor.scsc`, and
+records the id in `llmor.lock`.
+
+```bash
+./bin/llmor apps:import                 # pick from a list of this vendor's apps
+./bin/llmor apps:import 17              # or name the id from the console
+./bin/llmor apps:import 17 --dry-run    # print the declaration, write nothing
+./bin/llmor apps:import 17 --as helpdesk
+```
+
+The bar it holds itself to is that **`llmor sync --app <name> --dry-run` reports
+`unchanged`** straight afterwards. A few consequences of aiming there:
+
+- **The whole parameter bag comes across**, server-seeded defaults included. It is more
+  verbose than something hand-written, but it is what the app actually has — and it is
+  why the next sync is a no-op. Trim it afterwards if you like; `[parameters]` are
+  overrides, so deleting a line just hands that key back to the console.
+- **Long or multi-line values move into files.** A prompt becomes
+  `prompts/<name>_prompt.md` with an `@file('./prompts/…')` reference, so it stays
+  diffable. `--inline` keeps everything in the manifest instead, and a `: Config` block
+  puts them somewhere else than `./prompts`:
+
+  ```scsc
+  llmor: Config {
+    [prompt_dir] = './resources/prompts'
+  }
+  ```
+
+  It is the project's own settings block — declared once, anywhere in the manifest, and
+  read by `apps:import` alone. The path is relative to the manifest and has to stay
+  inside the project; `@file` references you write by hand are never touched by it.
+- **The declaration name is derived from `[name]`** ("Support Bot" → `support_bot`) and
+  never silently suffixed: if the name is taken you are asked, or told to pass `--as`.
+- **Your manifest is appended to, never rewritten.** Comments, alignment and blank lines
+  are yours; the only thing normalised is the newline at the end of the file. Before
+  anything is written, the prospective manifest is parsed and the declaration read back
+  out, so a successful import cannot leave a file `sync` can't read.
+- **Console-managed fields are reported, not imported** — `embed_config`,
+  `allowed_origins` and `conversation_expire_after` have no manifest syntax and `sync`
+  never touches them.
+- **A sub-agent pointing at an app your manifest doesn't declare** keeps its numeric id
+  (`[app] = 21`), which syncs fine. Import that app too and swap in its name if you want
+  the whole graph in one file.
+
+Re-importing an app that is already declared is a no-op, so it's safe in a bootstrap
+script. Very occasionally a parameter key can't be written at all — SchemaScript keys
+have no quoted form, so `top-k` has no spelling — and it is left out with a warning.
+That's safe rather than lossy: an omitted override keeps whatever the server has, which
+is exactly the value it was just read from.
+
+## Chat with an app: `llmor test`
+
+`sync` pushes your app; `test` lets you talk to it without opening the console.
+
+```bash
+llmor test support_bot                       # a REPL
+llmor test support_bot how do I reset it?    # one turn, then exit
+llmor test                                   # list the declared apps
+```
+
+The answer streams in as the model produces it, and tool calls appear as they run:
+
+```
+● Support Bot  #17
+  conversation  17-a1b2c3d4
+  model         GPT-4
+  streaming     live
+
+you › what's the weather in Bern?
+
+bot › Let me look that up.
+  ⚙ weather  {"city":"Bern"}
+  ✓ weather  {"temp":14,"cond":"rain"}
+
+bot › It's 14°C and raining in Bern right now.
+  1.8s · 412 in / 96 out
+```
+
+With a message in the arguments it runs one turn and exits, so it works in a script;
+`--json` then prints the raw interact response instead. Without one you get a REPL with
+`/exit`, `/new`, `/history`, `/token`, `/json` and `/help`.
+
+- The app is resolved **read-only** — an `[id]` pin, then `llmor.lock`, then adoption by
+  name + `[app_type]`. `test` never creates an app, so an unsynced declaration is an error
+  telling you to run `llmor sync` first. `--app-id 17` skips the manifest entirely.
+- `--conversation 17-abc` resumes an existing conversation instead of starting one; the
+  token is printed after every turn so you can pick it back up later.
+- If the app asks you a question (the ask-user tool), the REPL prompts for each one and
+  resumes the turn. In one-shot mode there is nobody to ask, so it prints the questions
+  and exits non-zero rather than pretending the turn finished.
+- **Ctrl+C** asks the server to stop generating. The runtime checks for that between
+  function-call iterations, so it takes effect at the next iteration boundary rather than
+  mid-sentence. Press it again to quit.
+
+### How streaming works
+
+Token deltas do not come back on the HTTP response — that call blocks for the whole turn
+and then returns the complete message list. They are published to a separate **relay**
+service (Socket.IO over WebSocket, at the `relay_url` the conversation record names), so
+`test` joins the conversation's channel there and pumps both connections at once.
+
+That means two things worth knowing:
+
+- If the relay is unreachable — a firewall, or local development without it running —
+  streaming is skipped with a warning and each turn is printed once it completes. The
+  answer is never lost, because it comes from the HTTP response either way. `--no-stream`
+  forces that mode, and `--relay-url` overrides the URL the API reports.
+- A **sub-agent runs in its own conversation** with its own relay channel, so its
+  internal tokens don't stream here. You see the parent's tool call around it — which is
+  the right level of detail — and its answer arrives as that call's result.
 
 ## Development
 
